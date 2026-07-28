@@ -1,4 +1,5 @@
 mod server;
+mod client;
 use tokio;
 pub mod greeter {
     tonic::include_proto!("greeter");

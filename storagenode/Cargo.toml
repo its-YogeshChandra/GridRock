@@ -13,3 +13,11 @@ tonic-prost = "0.14.6"
 
 [build-dependencies]
 tonic-prost-build = "0.14.6"
+
+[[bin]]
+name = "greeting_server"
+path = "src/main.rs"
+
+[[bin]]
+name = "greeting_client"
+path = "src/client.rs"
