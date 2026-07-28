@@ -10,7 +10,7 @@ use server::MineGreeterServer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn::std::error::Error>> {
-    let address = "0.0.0.0:50051".parse()?;
+    let address = "[::1]:50051".parse()?;
     Server::builder()
         .add_service(GreeterServer::new(MineGreeterServer::default()))
         .serve(address)
