@@ -5,13 +5,15 @@ pub mod greeter {
 }
 use greeter::greeter_server::GreeterServer;
 use tonic::{transport::Server};
+use server::MineGreeterServer;
 
 #[tokio::main]
-async fn main() {
-    let address = "[IP_ADDRESS]".parse().unwrap();
-    let greeter = server::GreeterServer;
+async fn main() -> Result<(), Box<dyn::std::error::Error>> {
+    let address = "0.0.0.0:50051".parse()?;
     Server::builder()
-        .add_service(GreeterServer::new(greeter))
+        .add_service(GreeterServer::new(MineGreeterServer::default()))
         .serve(address)
-        .await;
+        .await?;
+
+    Ok(())
 }

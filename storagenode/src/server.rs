@@ -1,10 +1,7 @@
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{Request, Response, Status};
 
-pub mod greeter {
-    tonic::include_proto!("greeter"); 
-}
-use greeter::{greeter_client, greeter_server};
-use greeter::{HelloRequest, HelloResponse};
+use crate::greeter::greeter_server;
+use crate::greeter::{HelloRequest, HelloResponse};
 
 #[derive(Debug, Default)]
 pub struct MineGreeterServer;
