@@ -1,5 +1,4 @@
 use tonic::{Request, Response, Status};
-
 use crate::greeter::greeter_server;
 use crate::greeter::{HelloRequest, HelloResponse};
 

@@ -1,0 +1,19 @@
+syntax = "proto3";
+package greeter;
+
+message Request{
+    uint64 balance = 1;
+    bool executable = 2;
+    uint64 rent_epoch = 3;
+    string data_hash = 4;
+    uint64 last_updated_slot = 5;
+}
+
+message Response{
+    string message = 1;
+    bool success = 2;
+}    
+
+service GridRock {
+    rpc UpdateStorage (Request) returns (Response);
+}
