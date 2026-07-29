@@ -1,22 +1,17 @@
-use rocksdb::{DB, Options};
-use tempfile;
+use rocksdb::DB;
+use std::path::PathBuf;
 
-pub fn getDBconnection()-> Result<DB, rocksdb::Error>{
-    let tempdir = tempfile::Builder::new().prefix("").tempdir().expect("failed to create tmeporary path");
-    let path = tempdir.path();
-    let db = DB::open_default(path)?;
-    Ok(db)
+/// Returns a path to the persistent RocksDB data directory.
+/// Creates the directory if it does not exist.
+fn db_path() -> PathBuf {
+    let path = PathBuf::from("./gridrock_data");
+    std::fs::create_dir_all(&path).expect("Failed to create DB directory");
+    path
 }
 
-pub struct MainVal {
-    pub unique_id: String,
-    pub balance: u64,
-    pub executable: bool,
-    pub rent_epoch: u64,
-    pub data_hash: String,
-    pub last_updated_slot: u64,
-}    
-pub struct RocksdbRequest{ 
-    key: String,
-    value : MainVal 
+/// Opens a RocksDB connection at a persistent path so data survives across calls.
+pub fn get_db_connection() -> Result<DB, rocksdb::Error> {
+    let path = db_path();
+    let db = DB::open_default(path)?;
+    Ok(db)
 }
