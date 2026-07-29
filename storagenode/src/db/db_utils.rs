@@ -7,3 +7,16 @@ pub fn getDBconnection()-> Result<DB, rocksdb::Error>{
     let db = DB::open_default(path)?;
     Ok(db)
 }
+
+pub struct MainVal {
+    pub unique_id: String,
+    pub balance: u64,
+    pub executable: bool,
+    pub rent_epoch: u64,
+    pub data_hash: String,
+    pub last_updated_slot: u64,
+}    
+pub struct RocksdbRequest{ 
+    key: String,
+    value : MainVal 
+}
