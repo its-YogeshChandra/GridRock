@@ -1,0 +1,35 @@
+syntax = "proto3";
+package greeter;
+
+message CreateRequest{
+    string unique_id = 1;
+    uint64 balance = 2;
+    bool executable = 3;
+    uint64 rent_epoch = 4;
+    string data_hash = 5;
+    uint64 last_updated_slot = 6;
+}
+message UpdateRequest {
+    string unique_id = 1;
+    uint64 balance = 2;
+}
+
+message GetValRequest{
+    string unique_id = 1;
+}
+
+message DelValRequest {
+   string unique_id =1; 
+}
+
+message Response{
+    string message = 1;
+    bool success = 2;
+}    
+
+service GridRock {
+    rpc CreateValinStorage (CreateRequest) returns (Response);
+    rpc UpdateValinStorage (CreateRequest) returns (Response);
+    rpc GetValfromStorage (CreateRequest) returns (Response);
+    rpc DelValfromStorage()returns (Response);
+}
