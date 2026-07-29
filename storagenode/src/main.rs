@@ -30,16 +30,17 @@ async fn main(
      config.id = 3;
 
    //initialize logger 
-   let logger = slog::Logger::root(slog);
+   let logger = slog::Logger::root(slog::Discard, o!());
 
 
    //question : what this .validate is validating 
    //and again what this is validating the config ? 
    config.validate().unwrap();
 
-   let storage = MemStorage::new_with_conf_state((vec![1], vec![]));
-   let mut node = RawNode::new(&config, node storage).unwrap();
-
+   //storage with 
+   let node_storage = MemStorage::new_with_conf_state((vec![1], vec![]));
+   let mut node = RawNode::new(&config, node_storage, &logger).unwrap();
+   
     Server::builder()
     .add_service(storage_proto::grid_rock_server::GridRockServer::new(server::StorageServer))
     .serve(addr).await?;
