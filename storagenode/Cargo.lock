@@ -1287,6 +1287,7 @@ dependencies = [
  "prost",
  "raft",
  "rocksdb",
+ "tempfile",
  "tokio",
  "tonic",
  "tonic-prost",

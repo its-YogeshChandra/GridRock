@@ -1,5 +1,7 @@
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{ Request, Response, Status};
 use crate::storage_proto::{CreateRequest, DelValRequest, UpdateRequest, GetValRequest, StorageResponse, grid_rock_server::{GridRock, GridRockServer}};
+use rocksdb::{DB, Options};
+use crate::db::db_utils::getDBconnection;
 
 #[derive(Debug, Default)]
 pub struct StorageServer;
@@ -9,7 +11,11 @@ impl GridRock for StorageServer {
    async fn create_valin_storage(&self, request:Request<CreateRequest>) -> Result<Response<StorageResponse>,Status>{ 
     let request_val = request.into_inner();
 
-    //write the function to store the value in storage using grpc 
+    //write the function to store the value in storage using grpc
+    let db = getDBconnection(); 
+   
+    //check if the value isn't already present 
+    
     let response_val = StorageResponse{
         message: "value successfully set".to_string(),
         success: true
