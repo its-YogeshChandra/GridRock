@@ -1,5 +1,6 @@
 mod server;
-mod client;
-use tokio;
+pub mod storage_proto {
+    tonic::include_proto!("storage_system");
+}
 
-fn main (){}
+fn main() {}

@@ -1,5 +1,5 @@
 syntax = "proto3";
-package greeter;
+package storage_system;
 
 message CreateRequest{
     string unique_id = 1;
@@ -22,14 +22,14 @@ message DelValRequest {
    string unique_id =1; 
 }
 
-message Response{
+message StorageResponse{
     string message = 1;
     bool success = 2;
 }    
 
 service GridRock {
-    rpc CreateValinStorage (CreateRequest) returns (Response);
-    rpc UpdateValinStorage (CreateRequest) returns (Response);
-    rpc GetValfromStorage (CreateRequest) returns (Response);
-    rpc DelValfromStorage()returns (Response);
+    rpc CreateValinStorage (CreateRequest) returns (StorageResponse);
+    rpc UpdateValinStorage (UpdateRequest) returns (StorageResponse);
+    rpc GetValfromStorage (GetValRequest) returns (StorageResponse);
+    rpc DelValfromStorage(DelValRequest)returns (StorageResponse);
 }
