@@ -14,3 +14,8 @@ tempfile = "3.27.0"
 
 [build-dependencies]
 tonic-prost-build = "0.14.6"
+
+[[bin]]
+name = "storage-client"
+path = "src/client.rs"
+

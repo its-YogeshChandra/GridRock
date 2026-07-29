@@ -1,5 +1,6 @@
 mod server;
 mod db;
+mod client;
 pub mod storage_proto {
     tonic::include_proto!("storage_system");
 }
