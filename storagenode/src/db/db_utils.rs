@@ -5,7 +5,11 @@ use std::path::PathBuf;
 /// Creates the directory if it does not exist.
 fn db_path() -> PathBuf {
     let path = PathBuf::from("./gridrock_data");
-    std::fs::create_dir_all(&path).expect("Failed to create DB directory");
+
+    //check if directory exists: if not exist create dir at that location 
+    if !path.exists() {
+        std::fs::create_dir_all(&path).expect("Failed to create DB directory");
+    }
     path
 }
 

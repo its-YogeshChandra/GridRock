@@ -12,6 +12,7 @@ use raft::{
     raw_node::RawNode,
 };
 use slog::{Drain, o};
+mod node;
 
 #[tokio::main]
 async fn main( 
@@ -29,7 +30,9 @@ async fn main(
 
      config.id = 3;
 
-   //initialize logger 
+   //initialize logger -- need to store logs
+   //caues the log will get shared to other nodes
+   //save the log in memory or in the folder ( whichever best ) 
    let logger = slog::Logger::root(slog::Discard, o!());
 
 
