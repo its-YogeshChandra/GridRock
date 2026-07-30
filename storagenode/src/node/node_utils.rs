@@ -11,6 +11,30 @@ use crate::storage_proto::{
     DelValRequest    
 };
 
+//Create a private module to "seal" the trait
+mod private {
+    pub trait Sealed {}
+    
+    // Implement the private trait ONLY for your specific structs
+    impl Sealed for super::GetValRequest {}
+    impl Sealed for super::UpdateRequest {}
+    impl Sealed for super::CreateRequest {}
+    impl Sealed for super::DelValRequest {}
+}
+
+//Define the public trait and require the private `Sealed` bound
+pub trait AllowedTypes: private::Sealed {
+    // You can also add common methods here if needed
+}
+
+//Implement the public trait for your structs
+impl AllowedTypes for GetValRequest {}
+impl AllowedTypes for UpdateRequest {}
+impl AllowedTypes for CreateRequest {}
+impl AllowedTypes for DelValRequest {}
+
+
+
 //function to create the raft node
 pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
 //question : do we need to create raft node every time ? or have to create it once and check if already present 
@@ -39,7 +63,7 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
  // node marks the added to 
  //then it gets added to the queue  
  //and then it get executed  
-pub fn processor_node_fn<T>(request: T) {
-      
+pub fn processor_node_fn<T>(request: T) where T: AllowedTypes {
+     
     
 }
