@@ -16,6 +16,11 @@ impl GridRock for StorageServer {
         &self,
         request: Request<CreateRequest>,
     ) -> Result<Response<StorageResponse>, Status> {
+
+        //check for node responsible for key range (testing against config from shard controller ) 
+
+
+
         let request_val = request.into_inner();
         let unique_id = request_val.unique_id.clone();
 
