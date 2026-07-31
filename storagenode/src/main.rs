@@ -47,7 +47,7 @@ async fn main(
     Server::builder()
     .add_service(storage_proto::grid_rock_server::GridRockServer::new(server::StorageServer))
     .serve(addr).await?;
-
+    
     
     Ok(())
 }
