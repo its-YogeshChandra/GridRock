@@ -121,17 +121,41 @@ pub fn processor_node(mut node: RawNode<MemStorage>){
 
                 //check for the committed entries and check if it's empty or not 
                 if !ready.committed_entries().is_empty() { 
+                    let mut _last_apply_index = 0;
                     for entry in ready.take_committed_entries() {
                         if entry.data.is_empty() {
                             continue;
                         }
-                        let id = entry.data[0];
-                        if let Some(callback) = cbs.remove(&id) {
-                            callback(Ok(()));
+                       
+                        match entry.get_entry_type() {
+                            raft::eraftpb::EntryType::EntryNormal => {
+                                // Handle normal entry
+                            }
+                            raft::eraftpb::EntryType::EntryConfChange => {
+                                // Handle configuration change entry
+                            }
+                            raft::eraftpb::EntryType::EntryConfChangeV2 => {
+                                // Handle configuration change v2 entry
+                            }
+                            _ => {
+                                eprintln!("Unhandled entry type");
+                            }
                         }
                     }
                 }
 
+                //check if the hard state is empty or not
+                if let Some(hs) = ready.hs() {
+                    node.mut_store().wl().set_hardstate(hs.clone());
+                }
+
+                //check if the persisted messages is empty or not
+                if !ready.persisted_messages().is_empty() {
+                    for msg in ready.take_persisted_messages() {
+                        // Handle persisted messages
+                     //send the message to the other peer node
+                    }
+                } 
                 node.advance(ready); 
 
 
