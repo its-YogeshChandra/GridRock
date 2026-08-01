@@ -13,6 +13,13 @@ use raft::{
 };
 use slog::{Drain, o};
 mod node;
+use std::sync::mpsc::{channel};
+
+enum Msg {
+    Propose{id: u8, callback: Box<dyn FnOnce(Result<(), raft::Error>) + Send>},
+    Raft(raft::eraftpb::Message),
+    // You can add more message types here if needed
+}
 
 #[tokio::main]
 async fn main( 
@@ -21,29 +28,9 @@ async fn main(
      let addr = "[::1]:50051".parse()?;
      println!("server is listening on the port 50051");
 
-     //create the config for creating raft node
-     //question : what config do in the first place  
-     let mut config = Config{
-        id: 1,
-        ..Default::default()
-     };
-
-     config.id = 3;
-
-   //initialize logger -- need to store logs
-   //caues the log will get shared to other nodes
-   //save the log in memory or in the folder ( whichever best ) 
-   let logger = slog::Logger::root(slog::Discard, o!());
-
-
-   //question : what this .validate is validating 
-   //and again what this is validating the config ? 
-   config.validate().unwrap();
-
-   //storage with 
-   let node_storage = MemStorage::new_with_conf_state((vec![1], vec![]));
-   let mut node = RawNode::new(&config, node_storage, &logger).unwrap();
-   
+     //create the tx and rx for the channel 
+     let (tx, rx) = channel::<Msg>();
+     
     Server::builder()
     .add_service(storage_proto::grid_rock_server::GridRockServer::new(server::StorageServer))
     .serve(addr).await?;

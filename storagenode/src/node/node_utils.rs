@@ -13,7 +13,7 @@ use crate::storage_proto::{
     DelValRequest    
 };
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, RecvTimeoutError};
+use std::sync::mpsc::{channel, RecvTimeoutError, Receiver};
 use std::time::{Instant, Duration};
 
 //Create a private module to "seal" the trait
@@ -147,10 +147,8 @@ fn process_ready_state(node: &mut RawNode<MemStorage>) {
  // node marks the added to 
  //then it gets added to the queue  
  //and then it get executed  
-pub fn processor_node(mut node: RawNode<MemStorage>){ 
-
-    let (tx, rx) = channel::<Msg>();
-
+pub fn processor_node(mut node: RawNode<MemStorage>, rx: Receiver<Msg>) { 
+    
     let timeout = Duration::from_millis(100);    
     let mut remaining_timeout = timeout;
 
