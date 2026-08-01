@@ -4,6 +4,7 @@ use raft::{
     Error
 };
 use slog::{Discard, o};
+use tonic::transport;
 use crate::storage_proto::{
     GetValRequest,
     UpdateRequest,
@@ -47,9 +48,7 @@ pub enum Msg {
 //function to create the raft node
 pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
 //question : do we need to create raft node every time ? or have to create it once and check if already present 
-//question : 
-
-    //check if raw node is already present 
+    
     let mut config = Config{
         id,
         election_tick: 10,
@@ -61,6 +60,60 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
     let logger = slog::Logger::root(slog::Discard, o!());
     RawNode::new(&config, node_storage, &logger).unwrap()
 }
+
+//helper function to process the ready state of the raft node 
+fn process_ready_state(node: &mut RawNode<MemStorage>) {
+    if !node.has_ready() {
+        return;
+    }
+
+    let mut ready = node.ready();
+
+    // Process messages
+    for msg in ready.take_messages() {
+        // Handle messages (e.g., send to other nodes)
+    }
+
+    // Apply snapshot if present
+    if !ready.snapshot().is_empty() {
+        node.mut_store().wl().apply_snapshot(ready.snapshot().clone()).unwrap();
+    }
+
+    // Append entries to storage
+    if !ready.entries().is_empty() {
+        node.mut_store().wl().append(ready.entries()).unwrap();
+    }
+
+    // Update hard state if present
+    if let Some(hs) = ready.hs() {
+        node.mut_store().wl().set_hardstate(hs.clone());
+    }
+
+    // Process committed entries
+    if !ready.committed_entries().is_empty() {
+        for entry in ready.take_committed_entries() {
+            if entry.data.is_empty() {
+                continue;
+            }
+            match entry.get_entry_type() {
+                raft::eraftpb::EntryType::EntryNormal => {
+                    // Handle normal entry (apply to state machine)
+                }
+                raft::eraftpb::EntryType::EntryConfChange => {
+                    // Handle configuration change entry
+                }
+                raft::eraftpb::EntryType::EntryConfChangeV2 => {
+                    // Handle configuration change v2 entry
+                }
+                _ => {
+                    eprintln!("Unhandled entry type");
+                }
+            }
+        }
+    }
+}
+
+
 
 
 //node processor is the main function for the whole raft system 
@@ -96,7 +149,7 @@ pub fn processor_node(mut node: RawNode<MemStorage>){
 
                 //check if node has something to process
                 if !node.has_ready() {
-                   return; 
+                   continue; 
                 };
 
                 //returns the outstanding work that the application needs to handle.
@@ -112,7 +165,8 @@ pub fn processor_node(mut node: RawNode<MemStorage>){
                     }
                 }
 
-                //check for the snapshot and check it's empty or not 
+                //check for the snapshot and check it's empty or not
+                //mostly get send when a new node enters the quorom  
                 if !ready.snapshot().is_empty() {
                     node.mut_store().wl().apply_snapshot(ready.snapshot().clone()).unwrap();
                 } 
@@ -122,6 +176,11 @@ pub fn processor_node(mut node: RawNode<MemStorage>){
                     node.mut_store().wl().append(ready.entries()).unwrap();
                 }
 
+               //check if the hard state is empty or not
+                if let Some(hs) = ready.hs() {
+                    node.mut_store().wl().set_hardstate(hs.clone());
+                }
+                
                 //check for the committed entries and check if it's empty or not 
                 if !ready.committed_entries().is_empty() { 
                     let mut _last_apply_index = 0;
@@ -133,6 +192,7 @@ pub fn processor_node(mut node: RawNode<MemStorage>){
                         match entry.get_entry_type() {
                             raft::eraftpb::EntryType::EntryNormal => {
                                 // Handle normal entry
+                                //apply to state machine 
                             }
                             raft::eraftpb::EntryType::EntryConfChange => {
                                 // Handle configuration change entry
@@ -147,10 +207,6 @@ pub fn processor_node(mut node: RawNode<MemStorage>){
                     }
                 }
 
-                //check if the hard state is empty or not
-                if let Some(hs) = ready.hs() {
-                    node.mut_store().wl().set_hardstate(hs.clone());
-                }
 
                 //check if the persisted messages is empty or not
                 if !ready.persisted_messages().is_empty() {
@@ -158,8 +214,20 @@ pub fn processor_node(mut node: RawNode<MemStorage>){
                         // Handle persisted messages
                      //send the message to the other peer node
                     }
-                } 
-                node.advance(ready); 
+                }
+
+                //advance and handle LightReady 
+                let mut light_rd = node.advance(ready);
+                for msg in light_rd.take_messages() {
+                    // Handle messages in LightReady
+                
+                }
+                for entry in light_rd.take_committed_entries() {
+                    // Handle committed entries in LightReady
+
+                
+                };
+                node.advance_apply(); 
 
 
          }
