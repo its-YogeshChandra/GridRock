@@ -4,6 +4,7 @@ use raft::{
     Error
 };
 use slog::{Discard, o};
+use tokio::fs::read;
 use tonic::transport;
 use crate::storage_proto::{
     GetValRequest,
@@ -111,6 +112,25 @@ fn process_ready_state(node: &mut RawNode<MemStorage>) {
             }
         }
     }
+
+   for msg in ready.take_persisted_messages() {
+        // Handle persisted messages (e.g., send to other nodes)
+    }
+
+    let mut light_rd = node.advance(ready);
+    
+    for msg in light_rd.take_messages() {
+        // Handle messages after advancing the node
+    
+    }
+
+    for entry in light_rd.take_committed_entries(){
+
+    }
+
+    node.advance_apply();
+
+
 }
 
 
@@ -152,88 +172,20 @@ pub fn processor_node(mut node: RawNode<MemStorage>){
                    continue; 
                 };
 
-                //returns the outstanding work that the application needs to handle.
-                let mut ready  = node.ready();
-
-                //ready state contains information 
-                //needs one by one processing of request 
-
-                //check if message is empty or not 
-                if !ready.messages().is_empty() {
-                    for entry in ready.take_messages() {
-                        
-                    }
-                }
-
-                //check for the snapshot and check it's empty or not
-                //mostly get send when a new node enters the quorom  
-                if !ready.snapshot().is_empty() {
-                    node.mut_store().wl().apply_snapshot(ready.snapshot().clone()).unwrap();
-                } 
-
-               //check for the entries and check if it's empty or not 
-                if !ready.entries().is_empty() {
-                    node.mut_store().wl().append(ready.entries()).unwrap();
-                }
-
-               //check if the hard state is empty or not
-                if let Some(hs) = ready.hs() {
-                    node.mut_store().wl().set_hardstate(hs.clone());
-                }
-                
-                //check for the committed entries and check if it's empty or not 
-                if !ready.committed_entries().is_empty() { 
-                    let mut _last_apply_index = 0;
-                    for entry in ready.take_committed_entries() {
-                        if entry.data.is_empty() {
-                            continue;
-                        }
-                       
-                        match entry.get_entry_type() {
-                            raft::eraftpb::EntryType::EntryNormal => {
-                                // Handle normal entry
-                                //apply to state machine 
-                            }
-                            raft::eraftpb::EntryType::EntryConfChange => {
-                                // Handle configuration change entry
-                            }
-                            raft::eraftpb::EntryType::EntryConfChangeV2 => {
-                                // Handle configuration change v2 entry
-                            }
-                            _ => {
-                                eprintln!("Unhandled entry type");
-                            }
-                        }
-                    }
-                }
-
-
-                //check if the persisted messages is empty or not
-                if !ready.persisted_messages().is_empty() {
-                    for msg in ready.take_persisted_messages() {
-                        // Handle persisted messages
-                     //send the message to the other peer node
-                    }
-                }
-
-                //advance and handle LightReady 
-                let mut light_rd = node.advance(ready);
-                for msg in light_rd.take_messages() {
-                    // Handle messages in LightReady
-                
-                }
-                for entry in light_rd.take_committed_entries() {
-                    // Handle committed entries in LightReady
-
-                
-                };
-                node.advance_apply(); 
+               let is_ready_processed = process_ready_state(&mut node); 
 
 
          }
 
             Ok(Msg::Raft(m)) => {
                 node.step(m).unwrap();
+
+                //check if node has something to process 
+                if node.has_ready() {
+                   let is_ready_processed = process_ready_state(&mut node);  
+                };
+
+            
             }
 
 
