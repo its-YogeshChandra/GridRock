@@ -52,6 +52,8 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
     //check if raw node is already present 
     let mut config = Config{
         id,
+        election_tick: 10,
+        heartbeat_tick: 1,
         ..Default::default()
     };
     config.validate().unwrap();
@@ -92,11 +94,12 @@ pub fn processor_node(mut node: RawNode<MemStorage>){
                 cbs.insert(id, callback);
                 node.propose(vec![], vec![id]).map_err(|e| println!("Error proposing: {}", e)).unwrap();
 
-                //for the node to fix the thing
+                //check if node has something to process
                 if !node.has_ready() {
                    return; 
                 };
 
+                //returns the outstanding work that the application needs to handle.
                 let mut ready  = node.ready();
 
                 //ready state contains information 
