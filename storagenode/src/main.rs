@@ -21,6 +21,10 @@ enum Msg {
     // You can add more message types here if needed
 }
 
+pub struct process_node_tx{
+ tx : std::sync::mpsc::Sender<Msg>
+}
+
 #[tokio::main]
 async fn main( 
     
@@ -31,8 +35,14 @@ async fn main(
      //create the tx and rx for the channel 
      let (tx, rx) = channel::<Msg>();
      
+     //create the process node tx 
+     let process_node_tx = process_node_tx{
+         tx: tx.clone()
+     };
+
     Server::builder()
     .add_service(storage_proto::grid_rock_server::GridRockServer::new(server::StorageServer))
+    //function to share this tx with every grpc function 
     .serve(addr).await?;
     
     
