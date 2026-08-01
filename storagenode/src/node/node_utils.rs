@@ -38,7 +38,7 @@ impl AllowedTypes for UpdateRequest {}
 impl AllowedTypes for CreateRequest {}
 impl AllowedTypes for DelValRequest {}
 
-
+//the correct messaage type is needed 
 pub enum Msg {
     Propose{id: u8, callback: Box<dyn FnOnce(Result<(), Error>) + Send>},
     Raft(Message),
@@ -71,9 +71,12 @@ fn process_ready_state(node: &mut RawNode<MemStorage>) {
     let mut ready = node.ready();
 
     // Process messages
-    for msg in ready.take_messages() {
-        // Handle messages (e.g., send to other nodes)
+    if !ready.messages().is_empty() {
+        for msg in ready.take_messages() {
+            // Handle messages (e.g., send to other nodes)
+        }
     }
+    
 
     // Apply snapshot if present
     if !ready.snapshot().is_empty() {
@@ -172,7 +175,7 @@ pub fn processor_node(mut node: RawNode<MemStorage>, rx: Receiver<Msg>) {
 
                let is_ready_processed = process_ready_state(&mut node); 
 
-
+               
          }
 
             Ok(Msg::Raft(m)) => {

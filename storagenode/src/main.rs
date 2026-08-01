@@ -35,7 +35,7 @@ async fn main(
    std::io::stdin().read_line(&mut peer2).expect("Failed to read peer2");
    std::io::stdin().read_line(&mut peer3).expect("Failed to read peer3"); 
 
-   
+   let mut peers = vec![peer1.trim().parse::<u64>().unwrap(), peer2.trim().parse::<u64>().unwrap(), peer3.trim().parse::<u64>().unwrap()]; 
 
     let addr = "[::1]:50051".parse()?;
     println!("server is listening on the port 50051");

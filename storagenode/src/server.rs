@@ -5,9 +5,11 @@ use crate::storage_proto::{
     grid_rock_server::GridRock,
 };
 use crate::db::db_utils::get_db_connection;
+use std::sync::mpsc::{Sender};
 
-#[derive(Debug, Default)]
-pub struct StorageServer;
+pub struct StorageServer{
+    tx: Sender<crate::node::node_utils::Msg>
+}
 
 #[tonic::async_trait]
 impl GridRock for StorageServer {
