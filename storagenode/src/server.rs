@@ -8,7 +8,7 @@ use crate::db::db_utils::get_db_connection;
 use std::sync::mpsc::{Sender};
 
 pub struct StorageServer{
-    tx: Sender<crate::node::node_utils::Msg>
+    pub tx: Sender<crate::node::node_utils::Msg>
 }
 
 #[tonic::async_trait]
