@@ -41,7 +41,7 @@ impl AllowedTypes for DelValRequest {}
 
 //the correct messaage type is needed 
 pub enum Msg {
-    Propose{id: u8, data: Vec<u8>, response_tx: oneshot::Sender<Result<(), Error>>},
+    Propose{id: u64, data: Vec<u8>, response_tx: oneshot::Sender<Result<(), NodeStateError>>},
     Raft(Message),
     // You can add more message types here if needed
 }
@@ -137,7 +137,12 @@ fn process_ready_state(node: &mut RawNode<MemStorage>) {
 
 }
 
-
+enum NodeStateError{
+    NotLeader,
+    WrongNode,
+    InvalidConfig,
+    Other(String),
+}
 
 
 //node processor is the main function for the whole raft system 
@@ -157,7 +162,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
     let mut remaining_timeout = timeout_dur;
 
     //the transaction will be handled here 
-    let mut cbs: HashMap<u8, oneshot::Sender<Result<(), Error>>> = HashMap::new();
+    let mut cbs: HashMap<u64, oneshot::Sender<Result<(), NodeStateError>>> = HashMap::new();
 
     loop {
         let now = Instant::now();
@@ -165,6 +170,15 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
         match timeout(remaining_timeout, rx.recv()).await {
 
             Ok(Some(Msg::Propose{id, data, response_tx})) => {
+
+                //check if the node is leader or not 
+                let is_leader = node.raft.state == StateRole::Leader; 
+                if !is_leader {
+                    // If not leader, send an error back to the client
+                    let _ = response_tx.send(Err(NodeStateError::NotLeader));
+                    continue;
+
+                }
 
                //store the callback in the cbs hashmap
                 cbs.insert(id, response_tx);

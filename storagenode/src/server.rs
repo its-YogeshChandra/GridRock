@@ -12,6 +12,11 @@ pub struct StorageServer{
     pub tx: Sender<crate::node::node_utils::Msg>
 }
 
+pub struct ResponseCallback{
+}
+
+
+
 #[tonic::async_trait]
 impl GridRock for StorageServer {
     /// Creates a new entry in storage. Fails if the unique_id already exists.
