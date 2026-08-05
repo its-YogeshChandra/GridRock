@@ -5,12 +5,12 @@ use crate::node_comm::{ForwardProposalRequest, ForwardProposalResponse, GetClust
 use tokio::sync::{mpsc::{Sender}, oneshot};
 use tokio;
 
-pub struct NodeCoommServer{
+pub struct NodeCommServer{
     pub tx: Sender<crate::node::node_utils::Msg>
 }
 
 #[tonic::async_trait]
-impl NodeComm for NodeCoommServer {
+impl NodeComm for NodeCommServer {
  
   async fn send_raft_message(&self, request: Request<RaftMessageRequest>) -> Result<Response<RaftMessageResponse>, Status> {
 

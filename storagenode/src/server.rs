@@ -1,12 +1,13 @@
 use prost::Message;
 use tonic::{Request, Response, Status};
+use crate::storage_proto::raft_proposal::Operation;
 use crate::storage_proto::{
-    CreateRequest, DelValRequest, UpdateRequest, GetValRequest, StorageResponse,
+    CreateRequest, DelValRequest, UpdateRequest, GetValRequest, StorageResponse, RaftProposal,
     grid_rock_server::GridRock,
 };
 use crate::db::db_utils::get_db_connection;
 use tokio::sync::{mpsc::{Sender}, oneshot};
-
+use crate::node::node_utils::{Msg, NodeStateError, OperationType, ProposeMessage};
 
 pub struct StorageServer{
     pub tx: Sender<crate::node::node_utils::Msg>
@@ -15,7 +16,7 @@ pub struct StorageServer{
 pub struct ResponseCallback{
 }
 
-
+static mut COUNTER: u64 = 0;
 
 #[tonic::async_trait]
 impl GridRock for StorageServer {
@@ -26,43 +27,44 @@ impl GridRock for StorageServer {
     ) -> Result<Response<StorageResponse>, Status> {
 
         //check for node responsible for key range (testing against config from shard controller )
-
-
-
-
-
+        
         let request_val = request.into_inner();
         let unique_id = request_val.unique_id.clone();
 
-        let db = get_db_connection().map_err(|e| Status::internal(e.to_string()))?;
+        //use the tokio oneshot to create 
+        let (tx, rx) = oneshot::channel::<Result<(), NodeStateError>>();
+        
+        //forge the propose msg for raft 
+        let id = unsafe{COUNTER + 1};
 
-        // Check if the key already exists
-        match db.get(unique_id.as_bytes()) {
-            Ok(Some(_)) => {
-                return Err(Status::already_exists(format!(
-                    "Key '{}' already exists in storage",
-                    unique_id
-                )));
-            }
-            Ok(None) => {
-                // Serialize the CreateRequest into protobuf bytes and store it
-                let mut buffer = Vec::new();
-                request_val
-                    .encode(&mut buffer)
-                    .map_err(|e| Status::internal(format!("Failed to encode value: {}", e)))?;
+        let raft_proposal = RaftProposal{
+           proposal_id : id.clone(), 
+           operation:Some(Operation::Create(request_val))
+        };
+        let mut data_buffer = Vec::new();
+        raft_proposal.encode(&mut data_buffer).map_err(|e| Status::internal(format!("server error: {}", e)))?;
+        
+        let propose_msg_data: ProposeMessage = ProposeMessage{
+            id : id,
+             data : data_buffer,
+             operation_type : OperationType::Create,
+             response_tx: tx 
+        };
 
-                db.put(unique_id.as_bytes(), buffer)
-                    .map_err(|e| Status::internal(format!("Failed to write to DB: {}", e)))?;
+        self.tx.send(Msg::Propose { proposemsg: propose_msg_data }).await.map_err(|e| Status::internal(e.to_string()))?;
 
+        let result = rx.await.map_err(|e| Status::internal(e.to_string()))?;
+        match result {
+            Ok(_) => {
                 let response_val = StorageResponse {
                     message: format!("Value with key '{}' successfully created", unique_id),
                     success: true,
                 };
                 Ok(Response::new(response_val))
             }
-            Err(e) => Err(Status::internal(e.to_string())),
+            Err(e) => Err(Status::internal(e)),
         }
-    }
+           }
 
     /// Updates an existing entry's balance. Fails if the unique_id does not exist.
     async fn update_valin_storage(

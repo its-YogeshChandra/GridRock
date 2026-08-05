@@ -6,21 +6,23 @@ use tokio;
 
 
 
+//send raft message 
 pub async fn send_raft_message() -> Result<(), Box<dyn std::error::Error>>{
 
     Ok(())
 }
 
+//forward proposal 
 pub async fn forward_proposal() -> Result<(), Box<dyn std::error::Error>>{
     Ok(())
 }
 
-
+//get cluster info 
 pub async fn get_cluster_info() -> Result<(), Box<dyn std::error::Error>>{
     Ok(())
 }
 
-
+//join cluster 
 pub async fn join_cluster() -> Result<(), Box<dyn std::error::Error>>{
     Ok(())
 }
