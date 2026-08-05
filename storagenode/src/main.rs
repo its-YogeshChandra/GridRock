@@ -7,7 +7,7 @@ pub mod storage_proto {
 use tonic::transport::Server;
 use tokio;
 mod node;
-use std::sync::mpsc::{channel};
+use tokio::sync::mpsc::channel;
 use node::node_utils::{create_raft_node, processor_node, Msg};
 
 
@@ -37,7 +37,7 @@ async fn main(
     println!("server is listening on the port 50051");
 
      //create the tx and rx for the channel 
-     let (tx, rx) = channel::<Msg>();
+     let (tx, rx) = channel::<Msg>(100);
      
      let id = 1;
     let peers = vec![1, 2, 3];
@@ -45,14 +45,13 @@ async fn main(
 
      //spawn a new thread to run the processor_node function
      tokio::spawn(async move {
-        node::node_utils::processor_node(&mut node, rx);
+        node::node_utils::processor_node(&mut node, rx).await;
      });
 
 
     //create the grpc server 
      Server::builder()
     .add_service(storage_proto::grid_rock_server::GridRockServer::new(server::StorageServer{tx: tx.clone()}))
-    //function to share this tx with every grpc function 
     .serve(addr).await?;
     
     

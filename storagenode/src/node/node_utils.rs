@@ -13,7 +13,7 @@ use crate::storage_proto::{
     DelValRequest    
 };
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, RecvTimeoutError, Receiver};
+use tokio::sync::mpsc::{channel, Receiver};
 use std::time::{Instant, Duration};
 
 //Create a private module to "seal" the trait
@@ -150,52 +150,30 @@ fn process_ready_state(node: &mut RawNode<MemStorage>) {
  // node marks the added to 
  //then it gets added to the queue  
  //and then it get executed  
-pub fn processor_node(mut node: &mut RawNode<MemStorage>, rx: Receiver<Msg>) { 
+pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver<Msg>) { 
     
     let timeout = Duration::from_millis(100);    
     let mut remaining_timeout = timeout;
 
     //the transaction will be handled here 
-    let mut cbs = HashMap::new();
+    let mut  cbs: HashMap<u8, Box<dyn FnOnce(Result<(), Error>) + Send>> = HashMap::new();
 
     loop {
         let now = Instant::now();
         
-        match rx.recv_timeout(remaining_timeout) {
-        //direct on what to perform on different conditions 
-            Ok(Msg::Propose{id, callback})  => {
-                //tools to fix the thin
-                cbs.insert(id, callback);
+        match rx.recv().await{
 
-                node.propose(vec![], vec![id]).map_err(|e| println!("Error proposing: {}", e)).unwrap();
+            Some(Msg::Propose{id, callback}) => {
 
-                //check if node has something to process
-                if !node.has_ready() {
-                   continue; 
-                };
 
-               let is_ready_processed = process_ready_state(&mut node); 
+            }
 
-               
-         }
-
-            Ok(Msg::Raft(m)) => {
-                node.step(m).unwrap();
-
-                //check if node has something to process 
-                if node.has_ready() {
-                   let is_ready_processed = process_ready_state(&mut node);  
-                };
-
-            
+            Some(Msg::Raft(msg)) => {
+                node.step(msg).unwrap();
             }
 
 
-            Err(RecvTimeoutError::Timeout) => {
-               //ready to do something  
-            }
-
-            Err(RecvTimeoutError::Disconnected) => {
+            None => {
                 unimplemented!("Channel disconnected"); 
             }
         }
