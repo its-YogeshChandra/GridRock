@@ -13,8 +13,9 @@ use crate::storage_proto::{
     DelValRequest    
 };
 use std::collections::HashMap;
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::{mpsc::{ Receiver}, oneshot};
 use std::time::{Instant, Duration};
+use tokio::time::timeout;
 
 //Create a private module to "seal" the trait
 mod private {
@@ -40,7 +41,7 @@ impl AllowedTypes for DelValRequest {}
 
 //the correct messaage type is needed 
 pub enum Msg {
-    Propose{id: u8, callback: Box<dyn FnOnce(Result<(), Error>) + Send>},
+    Propose{id: u8, data: Vec<u8>, response_tx: oneshot::Sender<Result<(), Error>>},
     Raft(Message),
     // You can add more message types here if needed
 }
@@ -152,35 +153,58 @@ fn process_ready_state(node: &mut RawNode<MemStorage>) {
  //and then it get executed  
 pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver<Msg>) { 
     
-    let timeout = Duration::from_millis(100);    
-    let mut remaining_timeout = timeout;
+    let timeout_dur = Duration::from_millis(100);    
+    let mut remaining_timeout = timeout_dur;
 
     //the transaction will be handled here 
-    let mut  cbs: HashMap<u8, Box<dyn FnOnce(Result<(), Error>) + Send>> = HashMap::new();
+    let mut cbs: HashMap<u8, oneshot::Sender<Result<(), Error>>> = HashMap::new();
 
     loop {
         let now = Instant::now();
         
-        match rx.recv().await{
+        match timeout(remaining_timeout, rx.recv()).await {
 
-            Some(Msg::Propose{id, callback}) => {
+            Ok(Some(Msg::Propose{id, data, response_tx})) => {
+
+               //store the callback in the cbs hashmap
+                cbs.insert(id, response_tx);
+
+                node.propose(vec![], data).unwrap();     
 
 
+                //check if raft node has data to be processed
+                if node.has_ready() {
+                    process_ready_state(&mut node);
+                } 
             }
 
-            Some(Msg::Raft(msg)) => {
-                node.step(msg).unwrap();
+            Ok(Some(Msg::Raft(msg)))  => {
+                match node.step(msg) {
+                    Ok(_) => {
+                        if node.has_ready() {
+                            process_ready_state(&mut node);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error stepping raft node: {:?}", e);
+                    }
+                }
             }
 
 
-            None => {
+           Ok(None) => {
                 unimplemented!("Channel disconnected"); 
+            }
+
+            Err(_) => {
+                // Timeout occurred, drive the Raft node
+                node.tick();
             }
         }
 
         let elapsed = now.elapsed();
         if elapsed >= remaining_timeout {
-            remaining_timeout = timeout;
+            remaining_timeout = timeout_dur;
 
             //drive raft event after timeout 
             node.tick();        
