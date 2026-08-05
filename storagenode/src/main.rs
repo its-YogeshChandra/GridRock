@@ -4,11 +4,16 @@ mod client;
 pub mod storage_proto {
     tonic::include_proto!("storage_system");
 }
+
+pub mod node_comm{
+    tonic::include_proto!("node_comm");
+}
 use tonic::transport::Server;
 use tokio;
 mod node;
+mod gprc_server;
 use tokio::sync::mpsc::channel;
-use node::node_utils::{create_raft_node, processor_node, Msg};
+use node::node_utils::{create_raft_node,  Msg};
 
 
 #[tokio::main]
