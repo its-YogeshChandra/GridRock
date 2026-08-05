@@ -1,26 +1,18 @@
+use crate::storage_proto::{CreateRequest, DelValRequest, GetValRequest, UpdateRequest};
 use raft::eraftpb::Message;
-use raft::{
-    Config, StateRole, raw_node::RawNode, storage::MemStorage,
-    Error
-};
+use raft::{Config, Error, StateRole, raw_node::RawNode, storage::MemStorage};
 use slog::{Discard, o};
-use tokio::fs::read;
-use tonic::transport;
-use crate::storage_proto::{
-    GetValRequest,
-    UpdateRequest,
-    CreateRequest,
-    DelValRequest    
-};
 use std::collections::HashMap;
-use tokio::sync::{mpsc::{ Receiver}, oneshot};
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
+use tokio::fs::read;
+use tokio::sync::{mpsc::Receiver, oneshot};
 use tokio::time::timeout;
+use tonic::transport;
 
 //Create a private module to "seal" the trait
 mod private {
     pub trait Sealed {}
-    
+
     // Implement the private trait ONLY for your specific structs
     impl Sealed for super::GetValRequest {}
     impl Sealed for super::UpdateRequest {}
@@ -39,7 +31,7 @@ impl AllowedTypes for UpdateRequest {}
 impl AllowedTypes for CreateRequest {}
 impl AllowedTypes for DelValRequest {}
 
-//the correct messaage type is needed  
+//the correct messaage type is needed
 
 #[derive(Debug, PartialEq)]
 pub enum OperationType {
@@ -49,28 +41,25 @@ pub enum OperationType {
     Get,
 }
 
-
 pub struct ProposeMessage {
     pub id: u64,
-    //the data is deserailized using the protobuf meessage type 
+    //the data is deserailized using the protobuf meessage type
     pub data: Vec<u8>,
-    pub operation_type : OperationType,
+    pub operation_type: OperationType,
     pub response_tx: oneshot::Sender<Result<(), NodeStateError>>,
 }
 
-
 pub enum Msg {
-    Propose{proposemsg: ProposeMessage},
+    Propose { proposemsg: ProposeMessage },
     Raft(Message),
     // You can add more message types here if needed
 }
 
-
 //function to create the raft node
 pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
-//question : do we need to create raft node every time ? or have to create it once and check if already present 
-    
-    let mut config = Config{
+    //question : do we need to create raft node every time ? or have to create it once and check if already present
+
+    let mut config = Config {
         id,
         election_tick: 10,
         heartbeat_tick: 1,
@@ -82,8 +71,11 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
     RawNode::new(&config, node_storage, &logger).unwrap()
 }
 
-//helper function to process the ready state of the raft node 
-fn process_ready_state(node: &mut RawNode<MemStorage>, cbs: &mut HashMap<u64, (OperationType, oneshot::Sender<Result<(), NodeStateError>>)>) {
+//helper function to process the ready state of the raft node
+fn process_ready_state(
+    node: &mut RawNode<MemStorage>,
+    cbs: &mut HashMap<u64, (OperationType, oneshot::Sender<Result<(), NodeStateError>>)>,
+) {
     if !node.has_ready() {
         return;
     }
@@ -94,14 +86,15 @@ fn process_ready_state(node: &mut RawNode<MemStorage>, cbs: &mut HashMap<u64, (O
     if !ready.messages().is_empty() {
         for msg in ready.take_messages() {
             // Handle messages (e.g., send to other nodes)
-
         }
     }
-    
 
     // Apply snapshot if present
     if !ready.snapshot().is_empty() {
-        node.mut_store().wl().apply_snapshot(ready.snapshot().clone()).unwrap();
+        node.mut_store()
+            .wl()
+            .apply_snapshot(ready.snapshot().clone())
+            .unwrap();
     }
 
     // Append entries to storage
@@ -137,109 +130,100 @@ fn process_ready_state(node: &mut RawNode<MemStorage>, cbs: &mut HashMap<u64, (O
         }
     }
 
-   for msg in ready.take_persisted_messages() {
+    for msg in ready.take_persisted_messages() {
         // Handle persisted messages (e.g., send to other nodes)
     }
 
     let mut light_rd = node.advance(ready);
-    
+
     for msg in light_rd.take_messages() {
         // Handle messages after advancing the node
-    
     }
 
-    for entry in light_rd.take_committed_entries(){
-
-    }
+    for entry in light_rd.take_committed_entries() {}
 
     node.advance_apply();
-
-
 }
 
-pub enum NodeStateError{
+pub enum NodeStateError {
     NotLeader,
     WrongNode,
     InvalidConfig,
     Other(String),
 }
 
-
-//node processor is the main function for the whole raft system 
- //receiving the request 
- //check weather the node is leader or not
- //if not either send error back wrong node || either pass the request to other node
-  //checking the request against the config
- //check the correct config from shard controller if incorrect config present  
- //if current node is leader , then update the logs and replicates log entry to followers 
- // if followers acknowledge 
- // node marks the added to 
- //then it gets added to the queue  
- //and then it get executed  
-pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver<Msg>) { 
-    
-    let timeout_dur = Duration::from_millis(100);    
+//node processor is the main function for the whole raft system
+//receiving the request
+//check weather the node is leader or not
+//if not either send error back wrong node || either pass the request to other node
+//checking the request against the config
+//check the correct config from shard controller if incorrect config present
+//if current node is leader , then update the logs and replicates log entry to followers
+// if followers acknowledge
+// node marks the added to
+//then it gets added to the queue
+//and then it get executed
+pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver<Msg>) {
+    let timeout_dur = Duration::from_millis(100);
     let mut remaining_timeout = timeout_dur;
 
     //the transaction will be handled here
-       
-    let mut cbs: HashMap<u64, (OperationType, oneshot::Sender<Result<(), NodeStateError>>)> = HashMap::new();
+
+    let mut cbs: HashMap<u64, (OperationType, oneshot::Sender<Result<(), NodeStateError>>)> =
+        HashMap::new();
 
     loop {
         let now = Instant::now();
-        
+
         match timeout(remaining_timeout, rx.recv()).await {
-
-            Ok(Some(Msg::Propose{proposemsg})) => {
-
-                //check if the node is leader or not 
-                let is_leader = node.raft.state == StateRole::Leader; 
+            Ok(Some(Msg::Propose { proposemsg })) => {
+                //check if the node is leader or not
+                let is_leader = node.raft.state == StateRole::Leader;
                 if !is_leader {
                     // If not leader, send an error back to the client
                     let _ = proposemsg.response_tx.send(Err(NodeStateError::NotLeader));
                     continue;
-
                 }
 
-                //check for the operation if the operation is get request 
+                //check for the operation if the operation is get request
                 if proposemsg.operation_type == OperationType::Get {
-                    // If it's a Get operation, send an error back to the client for now 
-                    //later we can implement seperate function to handle get request 
-                    let _ = proposemsg.response_tx.send(Err(NodeStateError::Other("Get operation not supported in this context".to_string())));
+                    // If it's a Get operation, send an error back to the client for now
+                    //later we can implement seperate function to handle get request
+                    let _ = proposemsg.response_tx.send(Err(NodeStateError::Other(
+                        "Get operation not supported in this context".to_string(),
+                    )));
                     continue;
                 }
 
-
-               //store the callback in the cbs hashmap
-                cbs.insert(proposemsg.id, (proposemsg.operation_type, proposemsg.response_tx));
+                //store the callback in the cbs hashmap
+                cbs.insert(
+                    proposemsg.id,
+                    (proposemsg.operation_type, proposemsg.response_tx),
+                );
 
                 //propse the message to the raft node
-                node.propose( proposemsg.id.to_be_bytes().to_vec(), proposemsg.data).unwrap();     
-
+                node.propose(proposemsg.id.to_be_bytes().to_vec(), proposemsg.data)
+                    .unwrap();
 
                 //check if raft node has data to be processed
                 if node.has_ready() {
                     process_ready_state(&mut node, &mut cbs);
                 }
-                 
             }
 
-            Ok(Some(Msg::Raft(msg)))  => {
-                match node.step(msg) {
-                    Ok(_) => {
-                        if node.has_ready() {
-                            process_ready_state(&mut node, &mut cbs);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Error stepping raft node: {:?}", e);
+            Ok(Some(Msg::Raft(msg))) => match node.step(msg) {
+                Ok(_) => {
+                    if node.has_ready() {
+                        process_ready_state(&mut node, &mut cbs);
                     }
                 }
-            }
+                Err(e) => {
+                    eprintln!("Error stepping raft node: {:?}", e);
+                }
+            },
 
-
-           Ok(None) => {
-                unimplemented!("Channel disconnected"); 
+            Ok(None) => {
+                unimplemented!("Channel disconnected");
             }
 
             Err(_) => {
@@ -252,20 +236,16 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
         if elapsed >= remaining_timeout {
             remaining_timeout = timeout_dur;
 
-            //drive raft event after timeout 
-            node.tick();       
+            //drive raft event after timeout
+            node.tick();
 
             //check if raft node has data to be processed
             if node.has_ready() {
-                process_ready_state(&mut node, &mut cbs);    
+                process_ready_state(&mut node, &mut cbs);
             }
-
-        }
-        else {
+        } else {
             remaining_timeout -= elapsed;
-            
         }
-
     }
-
 }
+

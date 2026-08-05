@@ -48,7 +48,6 @@ async fn main(
         node::node_utils::processor_node(&mut node, rx).await;
      });
 
-
     //create the grpc server 
      Server::builder()
     .add_service(storage_proto::grid_rock_server::GridRockServer::new(server::StorageServer{tx: tx.clone()}))
