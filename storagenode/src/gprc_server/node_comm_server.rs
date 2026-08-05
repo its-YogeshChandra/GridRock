@@ -15,7 +15,7 @@ impl NodeComm for NodeCoommServer {
   async fn send_raft_message(&self, request: Request<RaftMessageRequest>) -> Result<Response<RaftMessageResponse>, Status> {
 
 
-    
+
     //create the response 
     let response = RaftMessageResponse {
         success : true
@@ -35,6 +35,7 @@ impl NodeComm for NodeCoommServer {
   }
 
  async  fn get_cluster_info (&self , request: Request<GetClusterInfoRequest> ) -> Result<Response<GetClusterInfoResponse>, Status> {
+  let request = request.into_inner();
  
  let response = GetClusterInfoResponse {
     leader_id : 0,
