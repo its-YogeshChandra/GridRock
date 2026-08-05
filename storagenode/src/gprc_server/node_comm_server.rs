@@ -14,7 +14,8 @@ impl NodeComm for NodeCoommServer {
  
   async fn send_raft_message(&self, request: Request<RaftMessageRequest>) -> Result<Response<RaftMessageResponse>, Status> {
 
-    let buffer : Vec<u8> = vec![]; 
+
+    
     //create the response 
     let response = RaftMessageResponse {
         success : true
