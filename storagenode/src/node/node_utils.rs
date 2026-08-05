@@ -39,9 +39,28 @@ impl AllowedTypes for UpdateRequest {}
 impl AllowedTypes for CreateRequest {}
 impl AllowedTypes for DelValRequest {}
 
-//the correct messaage type is needed 
+//the correct messaage type is needed  
+
+#[derive(Debug, PartialEq)]
+pub enum OperationType {
+    Create,
+    Update,
+    Delete,
+    Get,
+}
+
+
+pub struct ProposeMessage {
+    pub id: u64,
+    //the data is deserailized using the protobuf meessage type 
+    pub data: Vec<u8>,
+    pub operation_type : OperationType,
+    pub response_tx: oneshot::Sender<Result<(), NodeStateError>>,
+}
+
+
 pub enum Msg {
-    Propose{id: u64, data: Vec<u8>, response_tx: oneshot::Sender<Result<(), NodeStateError>>},
+    Propose{proposemsg: ProposeMessage},
     Raft(Message),
     // You can add more message types here if needed
 }
@@ -64,7 +83,7 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
 }
 
 //helper function to process the ready state of the raft node 
-fn process_ready_state(node: &mut RawNode<MemStorage>) {
+fn process_ready_state(node: &mut RawNode<MemStorage>, cbs: &mut HashMap<u64, (OperationType, oneshot::Sender<Result<(), NodeStateError>>)>) {
     if !node.has_ready() {
         return;
     }
@@ -75,6 +94,7 @@ fn process_ready_state(node: &mut RawNode<MemStorage>) {
     if !ready.messages().is_empty() {
         for msg in ready.take_messages() {
             // Handle messages (e.g., send to other nodes)
+
         }
     }
     
@@ -137,7 +157,7 @@ fn process_ready_state(node: &mut RawNode<MemStorage>) {
 
 }
 
-enum NodeStateError{
+pub enum NodeStateError{
     NotLeader,
     WrongNode,
     InvalidConfig,
@@ -161,42 +181,54 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
     let timeout_dur = Duration::from_millis(100);    
     let mut remaining_timeout = timeout_dur;
 
-    //the transaction will be handled here 
-    let mut cbs: HashMap<u64, oneshot::Sender<Result<(), NodeStateError>>> = HashMap::new();
+    //the transaction will be handled here
+       
+    let mut cbs: HashMap<u64, (OperationType, oneshot::Sender<Result<(), NodeStateError>>)> = HashMap::new();
 
     loop {
         let now = Instant::now();
         
         match timeout(remaining_timeout, rx.recv()).await {
 
-            Ok(Some(Msg::Propose{id, data, response_tx})) => {
+            Ok(Some(Msg::Propose{proposemsg})) => {
 
                 //check if the node is leader or not 
                 let is_leader = node.raft.state == StateRole::Leader; 
                 if !is_leader {
                     // If not leader, send an error back to the client
-                    let _ = response_tx.send(Err(NodeStateError::NotLeader));
+                    let _ = proposemsg.response_tx.send(Err(NodeStateError::NotLeader));
                     continue;
 
                 }
 
-               //store the callback in the cbs hashmap
-                cbs.insert(id, response_tx);
+                //check for the operation if the operation is get request 
+                if proposemsg.operation_type == OperationType::Get {
+                    // If it's a Get operation, send an error back to the client for now 
+                    //later we can implement seperate function to handle get request 
+                    let _ = proposemsg.response_tx.send(Err(NodeStateError::Other("Get operation not supported in this context".to_string())));
+                    continue;
+                }
 
-                node.propose(vec![], data).unwrap();     
+
+               //store the callback in the cbs hashmap
+                cbs.insert(proposemsg.id, (proposemsg.operation_type, proposemsg.response_tx));
+
+                //propse the message to the raft node
+                node.propose( proposemsg.id.to_be_bytes().to_vec(), proposemsg.data).unwrap();     
 
 
                 //check if raft node has data to be processed
                 if node.has_ready() {
-                    process_ready_state(&mut node);
-                } 
+                    process_ready_state(&mut node, &mut cbs);
+                }
+                 
             }
 
             Ok(Some(Msg::Raft(msg)))  => {
                 match node.step(msg) {
                     Ok(_) => {
                         if node.has_ready() {
-                            process_ready_state(&mut node);
+                            process_ready_state(&mut node, &mut cbs);
                         }
                     }
                     Err(e) => {
@@ -221,7 +253,13 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
             remaining_timeout = timeout_dur;
 
             //drive raft event after timeout 
-            node.tick();        
+            node.tick();       
+
+            //check if raft node has data to be processed
+            if node.has_ready() {
+                process_ready_state(&mut node, &mut cbs);    
+            }
+
         }
         else {
             remaining_timeout -= elapsed;
