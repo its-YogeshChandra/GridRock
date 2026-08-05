@@ -41,11 +41,11 @@ async fn main(
      
      let id = 1;
     let peers = vec![1, 2, 3];
-     let node = create_raft_node(id, peers);
+     let mut node = create_raft_node(id, peers);
 
      //spawn a new thread to run the processor_node function
-     std::thread::spawn(move || {
-        node::node_utils::processor_node(node, rx);
+     tokio::spawn(async move {
+        node::node_utils::processor_node(&mut node, rx);
      });
 
 

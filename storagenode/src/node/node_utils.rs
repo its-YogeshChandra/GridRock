@@ -150,7 +150,7 @@ fn process_ready_state(node: &mut RawNode<MemStorage>) {
  // node marks the added to 
  //then it gets added to the queue  
  //and then it get executed  
-pub fn processor_node(mut node: RawNode<MemStorage>, rx: Receiver<Msg>) { 
+pub fn processor_node(mut node: &mut RawNode<MemStorage>, rx: Receiver<Msg>) { 
     
     let timeout = Duration::from_millis(100);    
     let mut remaining_timeout = timeout;
@@ -166,6 +166,7 @@ pub fn processor_node(mut node: RawNode<MemStorage>, rx: Receiver<Msg>) {
             Ok(Msg::Propose{id, callback})  => {
                 //tools to fix the thin
                 cbs.insert(id, callback);
+
                 node.propose(vec![], vec![id]).map_err(|e| println!("Error proposing: {}", e)).unwrap();
 
                 //check if node has something to process
