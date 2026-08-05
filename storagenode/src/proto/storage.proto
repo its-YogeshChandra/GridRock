@@ -27,6 +27,23 @@ message StorageResponse{
     bool success = 2;
 }    
 
+// Wrapper message for Raft log entries.
+// Every proposal sent through node.propose() gets serialized as this.
+// Any node (leader or follower) can decode entry.data as RaftProposal
+// and know both the operation type and the full payload.
+message RaftProposal {
+    uint64 proposal_id = 1;
+
+    oneof operation {
+        CreateRequest create = 2;
+        UpdateRequest update = 3;
+        GetValRequest get = 4;
+        DelValRequest delete = 5;
+    }
+}
+
+
+
 service GridRock {
     rpc CreateValinStorage (CreateRequest) returns (StorageResponse);
     rpc UpdateValinStorage (UpdateRequest) returns (StorageResponse);
