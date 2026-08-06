@@ -88,7 +88,7 @@ impl GridRock for StorageServer {
         let id = unsafe{COUNTER + 1};
 
         let raft_proposal = RaftProposal{
-           proposal_id : id.clone(), 
+           proposal_id : id, 
            operation:Some(Operation::Update(request_val))
         };
         let mut data_buffer = Vec::new();
@@ -121,38 +121,43 @@ impl GridRock for StorageServer {
         &self,
         request: Request<GetValRequest>,
     ) -> Result<Response<StorageResponse>, Status> {
+
         let request_val = request.into_inner();
-        let unique_id = &request_val.unique_id;
+        let unique_id = request_val.unique_id.clone();
 
-        let db = get_db_connection().map_err(|e| Status::internal(e.to_string()))?;
+        //use the tokio oneshot to create 
+        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>();
+        
+        //forge the propose msg for raft 
+        let id = unsafe{COUNTER + 1};
 
-        match db.get(unique_id.as_bytes()) {
-            Ok(Some(stored_bytes)) => {
-                // Decode the stored CreateRequest record
-                let record = CreateRequest::decode(stored_bytes.as_slice()).map_err(|e| {
-                    Status::internal(format!("Failed to decode stored record: {}", e))
-                })?;
+        let raft_proposal = RaftProposal{
+           proposal_id : id, 
+           operation:Some(Operation::Get(request_val))
+        };
+        let mut data_buffer = Vec::new();
+        raft_proposal.encode(&mut data_buffer).map_err(|e| Status::internal(format!("server error: {}", e)))?;
+        
+        let propose_msg_data: ProposeMessage = ProposeMessage{
+            id : id,
+             data : data_buffer,
+             operation_type : OperationType::Get,
+             response_tx: tx 
+        };
 
+        self.tx.send(Msg::Propose { proposemsg: propose_msg_data }).await.map_err(|e| Status::internal(e.to_string()))?;
+
+        let result = rx.await.map_err(|e| Status::internal(e.to_string()))?;
+        match result {
+            Ok(_) => {
                 let response_val = StorageResponse {
-                    message: format!(
-                        "unique_id: {}, balance: {}, executable: {}, rent_epoch: {}, data_hash: {}, last_updated_slot: {}",
-                        record.unique_id,
-                        record.balance,
-                        record.executable,
-                        record.rent_epoch,
-                        record.data_hash,
-                        record.last_updated_slot
-                    ),
+                    message: format!("Value with key '{}' successfully updated", unique_id),
                     success: true,
                 };
                 Ok(Response::new(response_val))
             }
-            Ok(None) => Err(Status::not_found(format!(
-                "Key '{}' not found in storage",
-                unique_id
-            ))),
             Err(e) => Err(Status::internal(e.to_string())),
-        }
+        } 
     }
 
     /// Deletes an entry from storage by unique_id. Fails if the key does not exist.
@@ -161,27 +166,40 @@ impl GridRock for StorageServer {
         request: Request<DelValRequest>,
     ) -> Result<Response<StorageResponse>, Status> {
         let request_val = request.into_inner();
-        let unique_id = &request_val.unique_id;
+        let unique_id = request_val.unique_id.clone();
 
-        let db = get_db_connection().map_err(|e| Status::internal(e.to_string()))?;
+        //use the tokio oneshot to create 
+        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>();
+        
+        //forge the propose msg for raft 
+        let id = unsafe{COUNTER + 1};
 
-        // Verify the key exists before deleting
-        match db.get(unique_id.as_bytes()) {
-            Ok(Some(_)) => {
-                db.delete(unique_id.as_bytes())
-                    .map_err(|e| Status::internal(format!("Failed to delete from DB: {}", e)))?;
+        let raft_proposal = RaftProposal{
+           proposal_id : id, 
+           operation:Some(Operation::Delete(request_val))
+        };
+        let mut data_buffer = Vec::new();
+        raft_proposal.encode(&mut data_buffer).map_err(|e| Status::internal(format!("server error: {}", e)))?;
+        
+        let propose_msg_data: ProposeMessage = ProposeMessage{
+            id : id,
+             data : data_buffer,
+             operation_type : OperationType::Delete,
+             response_tx: tx 
+        };
 
+        self.tx.send(Msg::Propose { proposemsg: propose_msg_data }).await.map_err(|e| Status::internal(e.to_string()))?;
+
+        let result = rx.await.map_err(|e| Status::internal(e.to_string()))?;
+        match result {
+            Ok(_) => {
                 let response_val = StorageResponse {
                     message: format!("Value with key '{}' successfully deleted", unique_id),
                     success: true,
                 };
                 Ok(Response::new(response_val))
             }
-            Ok(None) => Err(Status::not_found(format!(
-                "Key '{}' not found in storage",
-                unique_id
-            ))),
             Err(e) => Err(Status::internal(e.to_string())),
-        }
+        } 
     }
 }
