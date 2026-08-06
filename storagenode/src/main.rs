@@ -15,6 +15,7 @@ mod gprc_server;
 use tokio::sync::mpsc::channel;
 use node::node_utils::{create_raft_node,  Msg};
 mod grpc_client;
+mod errors;
 
 #[tokio::main]
 async fn main( 

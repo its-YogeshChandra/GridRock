@@ -13,7 +13,10 @@ pub struct StorageServer{
     pub tx: Sender<crate::node::node_utils::Msg>
 }
 
-pub struct ResponseCallback{
+pub struct RafProcessedResponse{
+    pub id : u64,
+    pub success : bool,
+    pub data : Option<CreateRequest>
 }
 
 static mut COUNTER: u64 = 0;
@@ -24,7 +27,8 @@ impl GridRock for StorageServer {
     async fn create_valin_storage(
         &self,
         request: Request<CreateRequest>,
-    ) -> Result<Response<StorageResponse>, Status> {
+    ) -> Result<Response<StorageResponse>, Status> //need to update the response type
+    {
 
         //check for node responsible for key range (testing against config from shard controller )
         
@@ -32,15 +36,16 @@ impl GridRock for StorageServer {
         let unique_id = request_val.unique_id.clone();
 
         //use the tokio oneshot to create 
-        let (tx, rx) = oneshot::channel::<Result<(), NodeStateError>>();
+        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, NodeStateError>>();
         
         //forge the propose msg for raft 
         let id = unsafe{COUNTER + 1};
 
         let raft_proposal = RaftProposal{
-           proposal_id : id.clone(), 
+           proposal_id : id, 
            operation:Some(Operation::Create(request_val))
         };
+
         let mut data_buffer = Vec::new();
         raft_proposal.encode(&mut data_buffer).map_err(|e| Status::internal(format!("server error: {}", e)))?;
         
@@ -71,45 +76,42 @@ impl GridRock for StorageServer {
         &self,
         request: Request<UpdateRequest>,
     ) -> Result<Response<StorageResponse>, Status> {
+        
         let request_val = request.into_inner();
-        let unique_id = &request_val.unique_id;
+        let unique_id = request_val.unique_id.clone();
 
-        let db = get_db_connection().map_err(|e| Status::internal(e.to_string()))?;
+        //use the tokio oneshot to create 
+        let (tx, rx) = oneshot::channel::<Result<(), NodeStateError>>();
+        
+        //forge the propose msg for raft 
+        let id = unsafe{COUNTER + 1};
 
-        match db.get(unique_id.as_bytes()) {
-            Ok(Some(existing_bytes)) => {
-                // Decode the existing CreateRequest record
-                let mut existing_record = CreateRequest::decode(existing_bytes.as_slice())
-                    .map_err(|e| {
-                        Status::internal(format!("Failed to decode existing record: {}", e))
-                    })?;
+        let raft_proposal = RaftProposal{
+           proposal_id : id.clone(), 
+           operation:Some(Operation::Update(request_val))
+        };
+        let mut data_buffer = Vec::new();
+        raft_proposal.encode(&mut data_buffer).map_err(|e| Status::internal(format!("server error: {}", e)))?;
+        
+        let propose_msg_data: ProposeMessage = ProposeMessage{
+            id : id,
+             data : data_buffer,
+             operation_type : OperationType::Update,
+             response_tx: tx 
+        };
 
-                // Apply the update — UpdateRequest only carries unique_id + balance
-                existing_record.balance = request_val.balance;
+        self.tx.send(Msg::Propose { proposemsg: propose_msg_data }).await.map_err(|e| Status::internal(e.to_string()))?;
 
-                // Re-encode and write back
-                let mut buffer = Vec::new();
-                existing_record
-                    .encode(&mut buffer)
-                    .map_err(|e| Status::internal(format!("Failed to encode value: {}", e)))?;
-
-                db.put(unique_id.as_bytes(), buffer)
-                    .map_err(|e| Status::internal(format!("Failed to write to DB: {}", e)))?;
-
+        let result = rx.await.map_err(|e| Status::internal(e.to_string()))?;
+        match result {
+            Ok(_) => {
                 let response_val = StorageResponse {
-                    message: format!(
-                        "Value with key '{}' successfully updated (balance -> {})",
-                        unique_id, request_val.balance
-                    ),
+                    message: format!("Value with key '{}' successfully updated", unique_id),
                     success: true,
                 };
                 Ok(Response::new(response_val))
             }
-            Ok(None) => Err(Status::not_found(format!(
-                "Key '{}' not found in storage",
-                unique_id
-            ))),
-            Err(e) => Err(Status::internal(e.to_string())),
+            Err(e) => Err(Status::internal(e)),
         }
     }
 
