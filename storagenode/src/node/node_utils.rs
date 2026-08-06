@@ -8,7 +8,8 @@ use tokio::fs::read;
 use tokio::sync::{mpsc::Receiver, oneshot};
 use tokio::time::timeout;
 use tonic::transport;
-
+use crate::errors::request_errors::ClientGrpcRequestProcessingError;
+use crate::server::RafProcessedResponse;
 //Create a private module to "seal" the trait
 mod private {
     pub trait Sealed {}
@@ -46,7 +47,7 @@ pub struct ProposeMessage {
     //the data is deserailized using the protobuf meessage type
     pub data: Vec<u8>,
     pub operation_type: OperationType,
-    pub response_tx: oneshot::Sender<Result<(), NodeStateError>>,
+    pub response_tx: oneshot::Sender<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>,
 }
 
 pub enum Msg {
@@ -74,7 +75,7 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
 //helper function to process the ready state of the raft node
 fn process_ready_state(
     node: &mut RawNode<MemStorage>,
-    cbs: &mut HashMap<u64, (OperationType, oneshot::Sender<Result<(), NodeStateError>>)>,
+    cbs: &mut HashMap<u64, oneshot::Sender<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>>,
 ) {
     if !node.has_ready() {
         return;
@@ -169,7 +170,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
 
     //the transaction will be handled here
 
-    let mut cbs: HashMap<u64, (OperationType, oneshot::Sender<Result<(), NodeStateError>>)> =
+    let mut cbs: HashMap<u64, oneshot::Sender<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>> =
         HashMap::new();
 
     loop {
@@ -181,7 +182,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                 let is_leader = node.raft.state == StateRole::Leader;
                 if !is_leader {
                     // If not leader, send an error back to the client
-                    let _ = proposemsg.response_tx.send(Err(NodeStateError::NotLeader));
+                    let _ = proposemsg.response_tx.send(Err(ClientGrpcRequestProcessingError::NotLeader));
                     continue;
                 }
 
@@ -189,16 +190,14 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                 if proposemsg.operation_type == OperationType::Get {
                     // If it's a Get operation, send an error back to the client for now
                     //later we can implement seperate function to handle get request
-                    let _ = proposemsg.response_tx.send(Err(NodeStateError::Other(
-                        "Get operation not supported in this context".to_string(),
-                    )));
+                    let _ = proposemsg.response_tx.send(Err(ClientGrpcRequestProcessingError::GetRequestNotSupported));
                     continue;
                 }
 
                 //store the callback in the cbs hashmap
                 cbs.insert(
                     proposemsg.id,
-                    (proposemsg.operation_type, proposemsg.response_tx),
+                     proposemsg.response_tx,
                 );
 
                 //propse the message to the raft node

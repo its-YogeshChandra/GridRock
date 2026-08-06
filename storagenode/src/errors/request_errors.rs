@@ -5,7 +5,8 @@ use std::error::Error;
 #[derive(Debug)]
 pub enum ClientGrpcRequestProcessingError{
    NodeUnaware,
-   NotLeader
+   NotLeader,
+   GetRequestNotSupported
 }
 
 
@@ -14,6 +15,7 @@ impl fmt::Display for ClientGrpcRequestProcessingError {
         match self {
             ClientGrpcRequestProcessingError::NodeUnaware => write!(f, "the node is not aware of the request"),
             ClientGrpcRequestProcessingError::NotLeader => write!(f, "the node is not a leader"),
+            ClientGrpcRequestProcessingError::GetRequestNotSupported => write!(f, "the get request is not supported "),
     }
 }
 }

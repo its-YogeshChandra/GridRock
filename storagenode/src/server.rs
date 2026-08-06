@@ -8,6 +8,7 @@ use crate::storage_proto::{
 use crate::db::db_utils::get_db_connection;
 use tokio::sync::{mpsc::{Sender}, oneshot};
 use crate::node::node_utils::{Msg, NodeStateError, OperationType, ProposeMessage};
+use crate::errors::request_errors::ClientGrpcRequestProcessingError;
 
 pub struct StorageServer{
     pub tx: Sender<crate::node::node_utils::Msg>
@@ -36,7 +37,7 @@ impl GridRock for StorageServer {
         let unique_id = request_val.unique_id.clone();
 
         //use the tokio oneshot to create 
-        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, NodeStateError>>();
+        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
         let id = unsafe{COUNTER + 1};
@@ -67,7 +68,7 @@ impl GridRock for StorageServer {
                 };
                 Ok(Response::new(response_val))
             }
-            Err(e) => Err(Status::internal(e)),
+            Err(e) => Err(Status::internal(e.to_string())),
         }
            }
 
@@ -81,7 +82,7 @@ impl GridRock for StorageServer {
         let unique_id = request_val.unique_id.clone();
 
         //use the tokio oneshot to create 
-        let (tx, rx) = oneshot::channel::<Result<(), NodeStateError>>();
+        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
         let id = unsafe{COUNTER + 1};
@@ -111,7 +112,7 @@ impl GridRock for StorageServer {
                 };
                 Ok(Response::new(response_val))
             }
-            Err(e) => Err(Status::internal(e)),
+            Err(e) => Err(Status::internal(e.to_string())),
         }
     }
 
