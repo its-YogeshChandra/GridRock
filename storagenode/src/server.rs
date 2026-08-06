@@ -7,7 +7,7 @@ use crate::storage_proto::{
 };
 use crate::db::db_utils::get_db_connection;
 use tokio::sync::{mpsc::{Sender}, oneshot};
-use crate::node::node_utils::{Msg, NodeStateError, OperationType, ProposeMessage};
+use crate::node::node_utils::{Msg, OperationType, ProposeMessage};
 use crate::errors::request_errors::ClientGrpcRequestProcessingError;
 
 pub struct StorageServer{

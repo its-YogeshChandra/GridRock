@@ -4,7 +4,6 @@ use raft::{Config, Error, StateRole, raw_node::RawNode, storage::MemStorage};
 use slog::{Discard, o};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tokio::fs::read;
 use tokio::sync::{mpsc::Receiver, oneshot};
 use tokio::time::timeout;
 use tonic::transport;
@@ -144,13 +143,6 @@ fn process_ready_state(
     for entry in light_rd.take_committed_entries() {}
 
     node.advance_apply();
-}
-
-pub enum NodeStateError {
-    NotLeader,
-    WrongNode,
-    InvalidConfig,
-    Other(String),
 }
 
 //node processor is the main function for the whole raft system
