@@ -8,7 +8,6 @@ pub enum ClientGrpcRequestProcessingError{
    NotLeader,
    GetRequestNotSupported,
    DbResponseFailed,
- ClientResponseSenderNotFound
 }
 
 
@@ -19,7 +18,6 @@ impl fmt::Display for ClientGrpcRequestProcessingError {
             ClientGrpcRequestProcessingError::NotLeader => write!(f, "the node is not a leader"),
             ClientGrpcRequestProcessingError::GetRequestNotSupported => write!(f, "the get request is not supported "),
             ClientGrpcRequestProcessingError::DbResponseFailed => write!(f, "the db response failed"),
-            ClientGrpcRequestProcessingError::ClientResponseSenderNotFound => write!(f, "the client response sender not found"),
     }
 }
 }
