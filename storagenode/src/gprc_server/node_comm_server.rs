@@ -5,9 +5,12 @@ use tokio::sync::{mpsc::{Sender}, oneshot};
 use tokio;
 use protobuf::Message as ProtobufMessage;
 use crate::node::node_utils::{Msg, ProposeMessage};
+use std::sync::{Arc, RwLock};
+use crate::ClusterState;
 
 pub struct NodeCommServer{
-    pub tx: Sender<crate::node::node_utils::Msg>
+    pub tx: Sender<crate::node::node_utils::Msg>,
+    pub cluster_state: Arc<RwLock<ClusterState>>,
 }
 
 #[tonic::async_trait]
@@ -59,15 +62,11 @@ impl NodeComm for NodeCommServer {
  async  fn get_cluster_info (&self , request: Request<GetClusterInfoRequest> ) -> Result<Response<GetClusterInfoResponse>, Status> {
   let request = request.into_inner();
 
-  //question : do we even  need to send this message to processing node ? I don't think so 
-
-  //the leader wil come from node which is obvious j 
-  //question : where the id of peers come from ? 
  let response = GetClusterInfoResponse {
     leader_id : 0,
     peers : vec![]
  };
- 
+
  Ok(Response::new(response))   
  
  }
