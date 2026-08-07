@@ -5,7 +5,6 @@ use crate::storage_proto::{
     CreateRequest, DelValRequest, UpdateRequest, GetValRequest, StorageResponse, RaftProposal,
     grid_rock_server::GridRock,
 };
-use crate::db::db_utils::get_db_connection;
 use tokio::sync::{mpsc::{Sender}, oneshot};
 use crate::node::node_utils::{Msg, OperationType, ProposeMessage};
 use crate::errors::request_errors::ClientGrpcRequestProcessingError;

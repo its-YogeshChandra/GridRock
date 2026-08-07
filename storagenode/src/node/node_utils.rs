@@ -1,14 +1,18 @@
 use crate::storage_proto::{CreateRequest, DelValRequest, GetValRequest, UpdateRequest};
-use raft::eraftpb::Message;
+use raft::eraftpb;
+use prost::Message;
 use raft::{Config, Error, StateRole, raw_node::RawNode, storage::MemStorage};
 use slog::{Discard, o};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc::Receiver, oneshot};
 use tokio::time::timeout;
-use tonic::transport;
 use crate::errors::request_errors::ClientGrpcRequestProcessingError;
 use crate::server::RafProcessedResponse;
+use crate::db::{db_create, db_read, db_update, db_delete, get_db_connection};
+use crate::storage_proto::RaftProposal;
+use crate::storage_proto::raft_proposal::Operation;
+
 //Create a private module to "seal" the trait
 mod private {
     pub trait Sealed {}
@@ -51,7 +55,7 @@ pub struct ProposeMessage {
 
 pub enum Msg {
     Propose { proposemsg: ProposeMessage },
-    Raft(Message),
+    Raft(eraftpb::Message),
     // You can add more message types here if needed
 }
 
@@ -117,6 +121,55 @@ fn process_ready_state(
             match entry.get_entry_type() {
                 raft::eraftpb::EntryType::EntryNormal => {
                     // Handle normal entry (apply to state machine)
+
+                  //fetch the data and deserealize
+                  match RaftProposal::decode(entry.data){
+                    Ok(proposal)=>{
+                        match proposal.operation {
+                           Some(Operation::Create(create_req)) => {
+                            //call the db functions to write in storage
+                            let mut db = get_db_connection().unwrap();  
+                            let db_response = db_create(&db, &create_req);
+                            match  db_response{
+                                Ok(response)=>{
+                                    let response = RafProcessedResponse {
+                                        response: response.into(),
+                                        status: 200,
+                                    };
+                                }  
+                                Err(e)=>{
+                                    let response = RafProcessedResponse {
+                                        response: response.into(),
+                                        status: 500,
+                                    };
+                                }  
+                            }  
+                                
+                            }
+                            Some(Operation::Update(update_req)) => {
+                                
+                            }
+                            Some(Operation::Delete(del_req)) => {
+                                
+                            }
+                            Some(Operation::Get(_)) => {
+                                
+                            }
+                            None => {
+                                eprintln!("No operation found");
+                            }
+                        }                      
+                    }
+                    Err(e)=>{
+                      eprintln!("Failed to decode proposal: {:?}", e);
+
+                      //send error to the grpc handler 
+                    }
+                  }
+
+                  //chek on the operation type 
+                  //match and call the specific function from db utils 
+                  //send response back to the grpc handler using stored response tx    
                 }
                 raft::eraftpb::EntryType::EntryConfChange => {
                     // Handle configuration change entry
