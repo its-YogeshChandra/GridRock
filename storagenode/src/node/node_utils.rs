@@ -59,6 +59,94 @@ pub enum Msg {
     // You can add more message types here if needed
 }
 
+pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>>, db: &rocksdb::DB) {
+    //check if the entry is data entry
+    let proposal = match RaftProposal::decode(entry.data.as_ref()) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!("Failed to decode RaftProposal: {:?}", e);
+                            return;
+                        }
+                    };
+
+                    let proposal_id = proposal.proposal_id;
+
+                    
+                    // Apply the operation to the state machine (RocksDB)
+                    // Build the response or error based on which operation it is
+                    let result: Result<RaftProcessedResponse, ClientGrpcRequestProcessingError> = match proposal.operation {
+                        Some(Operation::Create(ref create_req)) => {
+                            match db_create(&db, create_req) {
+                                Ok(created_id) => Ok(RaftProcessedResponse {
+                                    id: Some(created_id.to_string()),
+                                    success: true,
+                                    data: Some(create_req.clone()),
+                                }),
+                                Err(e) => {
+                                    eprintln!("DB create failed: {}", e);
+                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
+                                }
+                            }
+                        }
+
+                        Some(Operation::Update(ref update_req)) => {
+                            match db_update(&db, &update_req.unique_id, update_req.balance) {
+                                Ok(updated_id) => Ok(RaftProcessedResponse {
+                                    id: Some(updated_id.to_string()),
+                                    success: true,
+                                    data: None,
+                                }),
+                                Err(e) => {
+                                    eprintln!("DB update failed: {}", e);
+                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
+                                }
+                            }
+                        }
+
+                        Some(Operation::Delete(ref del_req)) => {
+                            match db_delete(&db, &del_req.unique_id) {
+                                Ok(deleted_id) => Ok(RaftProcessedResponse {
+                                    id: Some(deleted_id.to_string()),
+                                    success: true,
+                                    data: None,
+                                }),
+                                Err(e) => {
+                                    eprintln!("DB delete failed: {}", e);
+                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
+                                }
+                            }
+                        }
+
+                        Some(Operation::Get(ref get_req)) => {
+                            match db_read(&db, &get_req.unique_id) {
+                                Ok(record) => Ok(RaftProcessedResponse {
+                                    id: Some(get_req.unique_id.clone()),
+                                    success: true,
+                                    data: Some(record),
+                                }),
+                                Err(e) => {
+                                    eprintln!("DB read failed: {}", e);
+                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
+                                }
+                            }
+                        }
+
+                        None => {
+                            eprintln!("No operation found in RaftProposal (id: {})", proposal_id);
+                            Err(ClientGrpcRequestProcessingError::NodeUnaware)
+                        }
+                    };
+
+                    // Send the result back to the gRPC handler if this node is the leader
+                    // (followers won't have an entry in cbs — they just applied to DB silently)
+                    if let Some(sender) = cbs.remove(&proposal_id) {
+                        let _ = sender.send(result);
+                    }
+    
+}
+
+
+
 //function to create the raft node
 pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
     //question : do we need to create raft node every time ? or have to create it once and check if already present
