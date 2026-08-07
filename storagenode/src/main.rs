@@ -57,6 +57,7 @@ async fn main(
     //create the grpc server 
      Server::builder()
     .add_service(storage_proto::grid_rock_server::GridRockServer::new(server::StorageServer{tx: tx.clone()}))
+    .add_service(node_comm::node_comm_server::NodeCommServer::new(gprc_server::node_comm_server::NodeCommServer{tx: tx.clone()}))
     .serve(addr).await?;
     
     

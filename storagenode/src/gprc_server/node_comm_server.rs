@@ -55,9 +55,10 @@ impl NodeComm for NodeCommServer {
     Ok(Response::new(response))
   }
 
+  //get the cluster info 
  async  fn get_cluster_info (&self , request: Request<GetClusterInfoRequest> ) -> Result<Response<GetClusterInfoResponse>, Status> {
   let request = request.into_inner();
- 
+  
  let response = GetClusterInfoResponse {
     leader_id : 0,
     peers : vec![]
