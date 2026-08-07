@@ -208,99 +208,17 @@ fn process_ready_state(
             }
             match entry.get_entry_type() {
                 raft::eraftpb::EntryType::EntryNormal => {
-                    // Decode the RaftProposal from the committed entry data
-                    let proposal = match RaftProposal::decode(entry.data.as_ref()) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            eprintln!("Failed to decode RaftProposal: {:?}", e);
-                            continue;
-                        }
-                    };
-
-                    let proposal_id = proposal.proposal_id;
-
-                    // Open DB connection — if this fails, notify the waiting client (if any) and move on
+                    // Open DB connection for this entry
                     let db = match get_db_connection() {
                         Ok(db) => db,
                         Err(e) => {
                             eprintln!("Failed to open DB connection: {:?}", e);
-                            if let Some(sender) = cbs.remove(&proposal_id) {
-                                let _ = sender.send(Err(ClientGrpcRequestProcessingError::DbResponseFailed));
-                            }
                             continue;
                         }
                     };
 
-                    // Apply the operation to the state machine (RocksDB)
-                    // Build the response or error based on which operation it is
-                    let result: Result<RaftProcessedResponse, ClientGrpcRequestProcessingError> = match proposal.operation {
-                        Some(Operation::Create(ref create_req)) => {
-                            match db_create(&db, create_req) {
-                                Ok(created_id) => Ok(RaftProcessedResponse {
-                                    id: Some(created_id.to_string()),
-                                    success: true,
-                                    data: Some(create_req.clone()),
-                                }),
-                                Err(e) => {
-                                    eprintln!("DB create failed: {}", e);
-                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
-                                }
-                            }
-                        }
-
-                        Some(Operation::Update(ref update_req)) => {
-                            match db_update(&db, &update_req.unique_id, update_req.balance) {
-                                Ok(updated_id) => Ok(RaftProcessedResponse {
-                                    id: Some(updated_id.to_string()),
-                                    success: true,
-                                    data: None,
-                                }),
-                                Err(e) => {
-                                    eprintln!("DB update failed: {}", e);
-                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
-                                }
-                            }
-                        }
-
-                        Some(Operation::Delete(ref del_req)) => {
-                            match db_delete(&db, &del_req.unique_id) {
-                                Ok(deleted_id) => Ok(RaftProcessedResponse {
-                                    id: Some(deleted_id.to_string()),
-                                    success: true,
-                                    data: None,
-                                }),
-                                Err(e) => {
-                                    eprintln!("DB delete failed: {}", e);
-                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
-                                }
-                            }
-                        }
-
-                        Some(Operation::Get(ref get_req)) => {
-                            match db_read(&db, &get_req.unique_id) {
-                                Ok(record) => Ok(RaftProcessedResponse {
-                                    id: Some(get_req.unique_id.clone()),
-                                    success: true,
-                                    data: Some(record),
-                                }),
-                                Err(e) => {
-                                    eprintln!("DB read failed: {}", e);
-                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
-                                }
-                            }
-                        }
-
-                        None => {
-                            eprintln!("No operation found in RaftProposal (id: {})", proposal_id);
-                            Err(ClientGrpcRequestProcessingError::NodeUnaware)
-                        }
-                    };
-
-                    // Send the result back to the gRPC handler if this node is the leader
-                    // (followers won't have an entry in cbs — they just applied to DB silently)
-                    if let Some(sender) = cbs.remove(&proposal_id) {
-                        let _ = sender.send(result);
-                    }
+                    // Decode, apply to RocksDB, and send response via the helper
+                    append_committed_entry(entry, cbs, &db);
                 }
                 raft::eraftpb::EntryType::EntryConfChange => {
                     // Handle configuration change entry
@@ -326,15 +244,30 @@ fn process_ready_state(
     for msg in ready.take_persisted_messages() {
         // Handle persisted messages (e.g., send to other nodes)
         
+        
     }
 
     let mut light_rd = node.advance(ready);
 
-    for msg in light_rd.take_messages() {
-        // Handle messages after advancing the node
+    // Send any additional messages to peers (transport layer — not yet implemented)
+    for _msg in light_rd.take_messages() {
+        // TODO: send to peer nodes via transport
     }
 
-    for entry in light_rd.take_committed_entries() {}
+    // Apply any additional committed entries from the light ready
+    for entry in light_rd.take_committed_entries() {
+        if entry.data.is_empty() {
+            continue;
+        }
+        let db = match get_db_connection() {
+            Ok(db) => db,
+            Err(e) => {
+                eprintln!("Failed to open DB connection: {:?}", e);
+                continue;
+            }
+        };
+        append_committed_entry(entry, cbs, &db);
+    }
 
     node.advance_apply();
 }
