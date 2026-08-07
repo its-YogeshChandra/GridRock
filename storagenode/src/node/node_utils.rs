@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc::Receiver, oneshot};
 use tokio::time::timeout;
 use crate::errors::request_errors::ClientGrpcRequestProcessingError;
-use crate::server::RafProcessedResponse;
+use crate::server::RaftProcessedResponse;
 use crate::db::{db_create, db_read, db_update, db_delete, get_db_connection};
 use crate::storage_proto::RaftProposal;
 use crate::storage_proto::raft_proposal::Operation;
@@ -50,7 +50,7 @@ pub struct ProposeMessage {
     //the data is deserailized using the protobuf meessage type
     pub data: Vec<u8>,
     pub operation_type: OperationType,
-    pub response_tx: oneshot::Sender<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>,
+    pub response_tx: oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>,
 }
 
 pub enum Msg {
@@ -78,7 +78,7 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
 //helper function to process the ready state of the raft node
 fn process_ready_state(
     node: &mut RawNode<MemStorage>,
-    cbs: &mut HashMap<u64, oneshot::Sender<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>>,
+    cbs: &mut HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>>,
 ) {
     if !node.has_ready() {
         return;
@@ -132,16 +132,35 @@ fn process_ready_state(
                             let db_response = db_create(&db, &create_req);
                             match  db_response{
                                 Ok(response)=>{
-                                    let response = RafProcessedResponse {
-                                        response: response.into(),
-                                        status: 200,
-                                    };
-                                }  
+                                    //get the client response sender for this operation
+                                    let proposal_id = proposal.proposal_id;
+                                    let client_response_sender = match cbs.get(&proposal_id){
+                                        Some(sender)=>{
+                                           //send the response back to the client
+                                            let response = RaftProcessedResponse {
+                                             id: , 
+                                             success: true,
+                                             data: Some(create_req),
+                                            }; 
+                                            sender.send(Ok(response))
+                                        }  
+                                        None=>{
+                                            eprintln!("Client response sender not found");
+                                            return;
+                                        }
+                                    } 
+                                    
+                                    //send the response back to the client
+
+                                                                    }  
                                 Err(e)=>{
-                                    let response = RafProcessedResponse {
-                                        response: response.into(),
-                                        status: 500,
-                                    };
+                                    //create the raft processed response with error 
+                                    let response = RaftProcessedResponse {
+                                     id: proposal_id, 
+                                     success: false,
+                                     data: None,
+                                    }; 
+                                    sender.send(Err(ClientGrpcRequestProcessingError::DbResponseFailed));
                                 }  
                             }  
                                 

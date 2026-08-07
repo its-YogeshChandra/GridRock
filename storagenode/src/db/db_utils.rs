@@ -33,32 +33,37 @@ pub fn get_db_connection() -> Result<DB, rocksdb::Error> {
 /// Creates a new entry in the database.
 /// The `CreateRequest` is serialized to protobuf bytes and stored under
 /// the `unique_id` key. Returns an error if the key already exists.
-pub fn db_create(db: &DB, request: &CreateRequest) -> Result<(), DbError> {
+pub fn db_create<'a>(db: &'a DB, request: &'a CreateRequest) -> Result<&'a str, DbError<'a>> {
     let key = request.unique_id.as_bytes();
 
     // Guard: reject duplicate keys
     if db.get(key)?.is_some() {
-        return Err(DbError::KeyAlreadyExists(request.unique_id.clone()));
+        return Err(DbError::KeyAlreadyExists(&request.unique_id));
     }
 
     let value = request.encode_to_vec();
     db.put(key, value)?;
-    Ok(())
+    
+    //return the id of the request  
+    Ok(&request.unique_id)
 }
 
 
 /// Reads an entry from the database by its `unique_id`.
 /// Returns the deserialized `CreateRequest` if found, or a `KeyNotFound` error.
-pub fn db_read(db: &DB, unique_id: &str) -> Result<CreateRequest, DbError> {
+pub fn db_read<'a>(db: &'a DB, unique_id: &'a str) -> Result<CreateRequest, DbError<'a>> {
     let key = unique_id.as_bytes();
 
     match db.get(key)? {
-        Some(raw_bytes) => {
+        Some(raw_bytes) =>{
             let entry = CreateRequest::decode(raw_bytes.as_slice())
-                .map_err(|e| DbError::SerializationError(e.to_string()))?;
+                .map_err(|_| {
+                    DbError::SerializationError("error while serializing")
+                })?;
+                
             Ok(entry)
         }
-        None => Err(DbError::KeyNotFound(unique_id.to_string())),
+        None => Err(DbError::KeyNotFound(&unique_id)),
     }
 }
 
@@ -66,16 +71,16 @@ pub fn db_read(db: &DB, unique_id: &str) -> Result<CreateRequest, DbError> {
 /// Updates an existing entry's balance.
 /// Fetches the current record, applies the new balance, re-serializes,
 /// and writes back. Returns an error if the key does not exist.
-pub fn db_update(db: &DB, unique_id: &str, new_balance: u64) -> Result<(), DbError> {
+pub fn db_update<'a>(db: &DB, unique_id: &'a str, new_balance: u64) -> Result<(), DbError<'a>> {
     let key = unique_id.as_bytes();
 
     // Fetch existing record
     let raw_bytes = db
         .get(key)?
-        .ok_or_else(|| DbError::KeyNotFound(unique_id.to_string()))?;
+        .ok_or_else(|| DbError::KeyNotFound(unique_id))?;
 
     let mut entry = CreateRequest::decode(raw_bytes.as_slice())
-        .map_err(|e| DbError::SerializationError(e.to_string()))?;
+        .map_err(|_| DbError::SerializationError("error while serializing"))?;
 
     // Apply the update
     entry.balance = new_balance;

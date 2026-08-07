@@ -6,7 +6,8 @@ use std::error::Error;
 pub enum ClientGrpcRequestProcessingError{
    NodeUnaware,
    NotLeader,
-   GetRequestNotSupported
+   GetRequestNotSupported,
+   DbResponseFailed
 }
 
 
@@ -16,6 +17,7 @@ impl fmt::Display for ClientGrpcRequestProcessingError {
             ClientGrpcRequestProcessingError::NodeUnaware => write!(f, "the node is not aware of the request"),
             ClientGrpcRequestProcessingError::NotLeader => write!(f, "the node is not a leader"),
             ClientGrpcRequestProcessingError::GetRequestNotSupported => write!(f, "the get request is not supported "),
+            ClientGrpcRequestProcessingError::DbResponseFailed => write!(f, "the db response failed"),
     }
 }
 }

@@ -13,8 +13,8 @@ pub struct StorageServer{
     pub tx: Sender<crate::node::node_utils::Msg>
 }
 
-pub struct RafProcessedResponse{
-    pub id : u64,
+pub struct RaftProcessedResponse{
+    pub id : String,
     pub success : bool,
     pub data : Option<CreateRequest>
 }
@@ -36,7 +36,7 @@ impl GridRock for StorageServer {
         let unique_id = request_val.unique_id.clone();
 
         //use the tokio oneshot to create 
-        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>();
+        let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
         let id = unsafe{COUNTER + 1};
@@ -81,7 +81,7 @@ impl GridRock for StorageServer {
         let unique_id = request_val.unique_id.clone();
 
         //use the tokio oneshot to create 
-        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>();
+        let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
         let id = unsafe{COUNTER + 1};
@@ -125,7 +125,7 @@ impl GridRock for StorageServer {
         let unique_id = request_val.unique_id.clone();
 
         //use the tokio oneshot to create 
-        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>();
+        let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
         let id = unsafe{COUNTER + 1};
@@ -168,7 +168,7 @@ impl GridRock for StorageServer {
         let unique_id = request_val.unique_id.clone();
 
         //use the tokio oneshot to create 
-        let (tx, rx) = oneshot::channel::<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>();
+        let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
         let id = unsafe{COUNTER + 1};
