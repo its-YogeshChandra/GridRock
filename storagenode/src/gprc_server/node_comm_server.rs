@@ -1,6 +1,6 @@
 //gprc server side functions for node to node communication
 use tonic::{Request, Response, Status};
-use crate::node_comm::{ForwardProposalRequest, ForwardProposalResponse, GetClusterInfoRequest, GetClusterInfoResponse, JoinClusterRequest, JoinClusterResponse, RaftMessageRequest, RaftMessageResponse, node_comm_server::NodeComm};  
+use crate::node_comm::{ForwardProposalRequest, ForwardProposalResponse, GetClusterInfoRequest, GetClusterInfoResponse, JoinClusterRequest, JoinClusterResponse, RaftMessageRequest, RaftMessageResponse, node_comm_server::NodeComm, PeerInfo};  
 use tokio::sync::{mpsc::{Sender}, oneshot};
 use tokio;
 use protobuf::Message as ProtobufMessage;
@@ -59,13 +59,26 @@ impl NodeComm for NodeCommServer {
   }
 
   //get the cluster info 
- async  fn get_cluster_info (&self , request: Request<GetClusterInfoRequest> ) -> Result<Response<GetClusterInfoResponse>, Status> {
-  let request = request.into_inner();
+ async  fn get_cluster_info (&self , _request: Request<GetClusterInfoRequest> ) -> Result<Response<GetClusterInfoResponse>, Status> {
+
+let state = self.cluster_state.read().unwrap();
+//create vector of peer info by iterating through hashmap from state cluster 
+let mut peers = Vec::new();
+
+for values in self.cluster_state.read().unwrap().peers.iter().enumerate(){
+   let peer_info = PeerInfo {
+    node_id : values.0 as u64,
+    address : values.1.1.to_string(),
+   };
+   peers.push(peer_info);
+}
 
  let response = GetClusterInfoResponse {
-    leader_id : 0,
-    peers : vec![]
+    leader_id : state.leader_id,
+    peers : peers
  };
+
+ 
 
  Ok(Response::new(response))   
  

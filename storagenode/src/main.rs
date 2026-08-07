@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         leader_id: 0,
         peers: config.peer_registry,
     }));
-
+    
     let addr = format!("[::1]:{}", config.port).parse()?;
     println!("Server is listening on port {}", config.port);
 
@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             server::StorageServer { tx: tx.clone() },
         ))
         .add_service(node_comm::node_comm_server::NodeCommServer::new(
-            gprc_server::node_comm_server::NodeCommServer { tx: tx.clone() },
+            gprc_server::node_comm_server::NodeCommServer { tx: tx.clone(), cluster_state },
         ))
         .serve(addr)
         .await?;
