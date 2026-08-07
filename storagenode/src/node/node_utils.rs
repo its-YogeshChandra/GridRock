@@ -216,9 +216,19 @@ fn process_ready_state(
                 }
                 raft::eraftpb::EntryType::EntryConfChange => {
                     // Handle configuration change entry
+
+                   //there is no decode function  
+                    let config_change_data = eraftpb::ConfChange::new();
+                   //apply the data to the raft node 
+                   let conf_state = node.apply_conf_change(&config_change_data).unwrap();    
+                   node.mut_store().wl().set_conf_state(conf_state); 
+
                 }
                 raft::eraftpb::EntryType::EntryConfChangeV2 => {
                     // Handle configuration change v2 entry
+                    eprintln!(
+                        "confchange received but not implemented yet"
+                    )
                 }
                 _ => {
                     eprintln!("Unhandled entry type");
@@ -335,5 +345,6 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
             remaining_timeout -= elapsed;
         }
     }
+
 }
 
