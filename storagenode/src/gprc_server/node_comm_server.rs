@@ -58,7 +58,11 @@ impl NodeComm for NodeCommServer {
   //get the cluster info 
  async  fn get_cluster_info (&self , request: Request<GetClusterInfoRequest> ) -> Result<Response<GetClusterInfoResponse>, Status> {
   let request = request.into_inner();
-  
+
+  //question : do we even  need to send this message to processing node ? I don't think so 
+
+  //the leader wil come from node which is obvious j 
+  //question : where the id of peers come from ? 
  let response = GetClusterInfoResponse {
     leader_id : 0,
     peers : vec![]
@@ -69,6 +73,10 @@ impl NodeComm for NodeCommServer {
  }
 
  async fn join_cluster(&self, request: Request<JoinClusterRequest>)-> Result<Response<JoinClusterResponse>, Status> {
+ let request = request.into_inner();
+ 
+ 
+ 
   let response = JoinClusterResponse {
     success : true,
     message : "Node joined successfully".to_string(),
