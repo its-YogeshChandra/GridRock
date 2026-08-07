@@ -120,75 +120,99 @@ fn process_ready_state(
             }
             match entry.get_entry_type() {
                 raft::eraftpb::EntryType::EntryNormal => {
-                    // Handle normal entry (apply to state machine)
+                    // Decode the RaftProposal from the committed entry data
+                    let proposal = match RaftProposal::decode(entry.data.as_ref()) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!("Failed to decode RaftProposal: {:?}", e);
+                            continue;
+                        }
+                    };
 
-                  //fetch the data and deserealize
-                  match RaftProposal::decode(entry.data){
-                    Ok(proposal)=>{
-                        match proposal.operation {
-                           Some(Operation::Create(create_req)) => {
-                            //call the db functions to write in storage
-                            let mut db = get_db_connection().unwrap();  
-                            let db_response = db_create(&db, &create_req);
-                            match  db_response{
-                                Ok(response)=>{
-                                    //get the client response sender for this operation
-                                    let proposal_id = proposal.proposal_id;
-                                    let client_response_sender = match cbs.get(&proposal_id){
-                                        Some(sender)=>{
-                                           //send the response back to the client
-                                            let response = RaftProcessedResponse {
-                                             id: , 
-                                             success: true,
-                                             data: Some(create_req),
-                                            }; 
-                                            sender.send(Ok(response))
-                                        }  
-                                        None=>{
-                                            eprintln!("Client response sender not found");
-                                            return;
-                                        }
-                                    } 
-                                    
-                                    //send the response back to the client
+                    let proposal_id = proposal.proposal_id;
 
-                                                                    }  
-                                Err(e)=>{
-                                    //create the raft processed response with error 
-                                    let response = RaftProcessedResponse {
-                                     id: proposal_id, 
-                                     success: false,
-                                     data: None,
-                                    }; 
-                                    sender.send(Err(ClientGrpcRequestProcessingError::DbResponseFailed));
-                                }  
-                            }  
-                                
+                    // Open DB connection — if this fails, notify the waiting client (if any) and move on
+                    let db = match get_db_connection() {
+                        Ok(db) => db,
+                        Err(e) => {
+                            eprintln!("Failed to open DB connection: {:?}", e);
+                            if let Some(sender) = cbs.remove(&proposal_id) {
+                                let _ = sender.send(Err(ClientGrpcRequestProcessingError::DbResponseFailed));
                             }
-                            Some(Operation::Update(update_req)) => {
-                                
+                            continue;
+                        }
+                    };
+
+                    // Apply the operation to the state machine (RocksDB)
+                    // Build the response or error based on which operation it is
+                    let result: Result<RaftProcessedResponse, ClientGrpcRequestProcessingError> = match proposal.operation {
+                        Some(Operation::Create(ref create_req)) => {
+                            match db_create(&db, create_req) {
+                                Ok(created_id) => Ok(RaftProcessedResponse {
+                                    id: Some(created_id.to_string()),
+                                    success: true,
+                                    data: Some(create_req.clone()),
+                                }),
+                                Err(e) => {
+                                    eprintln!("DB create failed: {}", e);
+                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
+                                }
                             }
-                            Some(Operation::Delete(del_req)) => {
-                                
+                        }
+
+                        Some(Operation::Update(ref update_req)) => {
+                            match db_update(&db, &update_req.unique_id, update_req.balance) {
+                                Ok(updated_id) => Ok(RaftProcessedResponse {
+                                    id: Some(updated_id.to_string()),
+                                    success: true,
+                                    data: None,
+                                }),
+                                Err(e) => {
+                                    eprintln!("DB update failed: {}", e);
+                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
+                                }
                             }
-                            Some(Operation::Get(_)) => {
-                                
+                        }
+
+                        Some(Operation::Delete(ref del_req)) => {
+                            match db_delete(&db, &del_req.unique_id) {
+                                Ok(deleted_id) => Ok(RaftProcessedResponse {
+                                    id: Some(deleted_id.to_string()),
+                                    success: true,
+                                    data: None,
+                                }),
+                                Err(e) => {
+                                    eprintln!("DB delete failed: {}", e);
+                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
+                                }
                             }
-                            None => {
-                                eprintln!("No operation found");
+                        }
+
+                        Some(Operation::Get(ref get_req)) => {
+                            match db_read(&db, &get_req.unique_id) {
+                                Ok(record) => Ok(RaftProcessedResponse {
+                                    id: Some(get_req.unique_id.clone()),
+                                    success: true,
+                                    data: Some(record),
+                                }),
+                                Err(e) => {
+                                    eprintln!("DB read failed: {}", e);
+                                    Err(ClientGrpcRequestProcessingError::DbResponseFailed)
+                                }
                             }
-                        }                      
+                        }
+
+                        None => {
+                            eprintln!("No operation found in RaftProposal (id: {})", proposal_id);
+                            Err(ClientGrpcRequestProcessingError::NodeUnaware)
+                        }
+                    };
+
+                    // Send the result back to the gRPC handler if this node is the leader
+                    // (followers won't have an entry in cbs — they just applied to DB silently)
+                    if let Some(sender) = cbs.remove(&proposal_id) {
+                        let _ = sender.send(result);
                     }
-                    Err(e)=>{
-                      eprintln!("Failed to decode proposal: {:?}", e);
-
-                      //send error to the grpc handler 
-                    }
-                  }
-
-                  //chek on the operation type 
-                  //match and call the specific function from db utils 
-                  //send response back to the grpc handler using stored response tx    
                 }
                 raft::eraftpb::EntryType::EntryConfChange => {
                     // Handle configuration change entry
@@ -233,10 +257,10 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
     let timeout_dur = Duration::from_millis(100);
     let mut remaining_timeout = timeout_dur;
 
-    //the transaction will be handled here
-
-    let mut cbs: HashMap<u64, oneshot::Sender<Result<RafProcessedResponse, ClientGrpcRequestProcessingError>>> =
-        HashMap::new();
+    //cbs storage for the response of the client
+    //contains key as the proposal id
+    //contains value as the response tx 
+    let mut cbs: HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>> = HashMap::new();
 
     loop {
         let now = Instant::now();

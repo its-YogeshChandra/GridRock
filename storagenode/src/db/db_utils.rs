@@ -71,7 +71,7 @@ pub fn db_read<'a>(db: &'a DB, unique_id: &'a str) -> Result<CreateRequest, DbEr
 /// Updates an existing entry's balance.
 /// Fetches the current record, applies the new balance, re-serializes,
 /// and writes back. Returns an error if the key does not exist.
-pub fn db_update<'a>(db: &DB, unique_id: &'a str, new_balance: u64) -> Result<(), DbError<'a>> {
+pub fn db_update<'a>(db: &DB, unique_id: &'a str, new_balance: u64) -> Result<&'a str, DbError<'a>> {
     let key = unique_id.as_bytes();
 
     // Fetch existing record
@@ -88,26 +88,26 @@ pub fn db_update<'a>(db: &DB, unique_id: &'a str, new_balance: u64) -> Result<()
     // Write the modified record back
     let value = entry.encode_to_vec();
     db.put(key, value)?;
-    Ok(())
+    Ok(unique_id)
 }
 
 
 /// Deletes an entry from the database by its `unique_id`.
 /// Returns an error if the key does not exist.
-pub fn db_delete(db: &DB, unique_id: &str) -> Result<(), DbError> {
+pub fn db_delete<'a>(db: &DB, unique_id: &'a str) -> Result<&'a str, DbError<'a>> {
     let key = unique_id.as_bytes();
 
     // Guard: reject deleting non-existent keys
     if db.get(key)?.is_none() {
-        return Err(DbError::KeyNotFound(unique_id.to_string()));
+        return Err(DbError::KeyNotFound(unique_id));
     }
 
     db.delete(key)?;
-    Ok(())
+    Ok(unique_id)
 }
 
 /// Checks whether a key exists in the database without deserializing the value.
-pub fn db_exists(db: &DB, unique_id: &str) -> Result<bool, DbError> {
+pub fn db_exists<'a>(db: &DB, unique_id: &str) -> Result<bool, DbError<'a>> {
     let key = unique_id.as_bytes();
     Ok(db.get(key)?.is_some())
 }

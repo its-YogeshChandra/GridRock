@@ -14,7 +14,7 @@ pub struct StorageServer{
 }
 
 pub struct RaftProcessedResponse{
-    pub id : String,
+    pub id : Option<String>,
     pub success : bool,
     pub data : Option<CreateRequest>
 }
