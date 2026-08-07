@@ -230,15 +230,14 @@ fn process_ready_state(
                         "confchange received but not implemented yet"
                     )
                 }
-                _ => {
-                    eprintln!("Unhandled entry type");
-                }
+
             }
         }
     }
 
     for msg in ready.take_persisted_messages() {
         // Handle persisted messages (e.g., send to other nodes)
+        
     }
 
     let mut light_rd = node.advance(ready);
