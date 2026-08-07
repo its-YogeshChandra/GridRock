@@ -107,7 +107,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         leader_id: 0,
         peers: config.peer_registry,
     }));
-    
+
+    let cluster_for_node_comm_service = cluster_state.clone();
+    let cluster_for_processor_node = cluster_state.clone();
+  
     let addr = format!("[::1]:{}", config.port).parse()?;
     println!("Server is listening on port {}", config.port);
 
@@ -119,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Spawn the raft processor loop
     tokio::spawn(async move {
-        node::node_utils::processor_node(&mut node, rx).await;
+        node::node_utils::processor_node(&mut node, rx, cluster_for_processor_node).await;
     });
 
     // Create the grpc server with both client-facing and node-to-node services
@@ -128,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             server::StorageServer { tx: tx.clone() },
         ))
         .add_service(node_comm::node_comm_server::NodeCommServer::new(
-            gprc_server::node_comm_server::NodeCommServer { tx: tx.clone(), cluster_state },
+            gprc_server::node_comm_server::NodeCommServer { tx: tx.clone(), cluster_state: cluster_for_node_comm_service },
         ))
         .serve(addr)
         .await?;

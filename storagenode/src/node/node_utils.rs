@@ -12,7 +12,8 @@ use crate::server::RaftProcessedResponse;
 use crate::db::{db_create, db_read, db_update, db_delete, get_db_connection};
 use crate::storage_proto::RaftProposal;
 use crate::storage_proto::raft_proposal::Operation;
-
+use std::sync::{Arc, RwLock};
+use crate::ClusterState;
 //Create a private module to "seal" the trait
 mod private {
     pub trait Sealed {}
@@ -283,7 +284,7 @@ fn process_ready_state(
 // node marks the added to
 //then it gets added to the queue
 //and then it get executed
-pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver<Msg>) {
+pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver<Msg>, cluster_state: Arc<RwLock<ClusterState>>) {
     let timeout_dur = Duration::from_millis(100);
     let mut remaining_timeout = timeout_dur;
 
