@@ -1285,6 +1285,7 @@ name = "storagenode"
 version = "0.1.0"
 dependencies = [
  "prost",
+ "protobuf",
  "raft",
  "rocksdb",
  "slog",
