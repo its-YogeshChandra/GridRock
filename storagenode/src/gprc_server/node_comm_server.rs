@@ -1,12 +1,18 @@
+use prost::Message;
 //gprc server side functions for node to node communication
 use tonic::{Request, Response, Status};
 use crate::node_comm::{ForwardProposalRequest, ForwardProposalResponse, GetClusterInfoRequest, GetClusterInfoResponse, JoinClusterRequest, JoinClusterResponse, RaftMessageRequest, RaftMessageResponse, node_comm_server::NodeComm, PeerInfo};  
 use tokio::sync::{mpsc::{Sender}, oneshot};
 use tokio;
 use protobuf::Message as ProtobufMessage;
-use crate::node::node_utils::{Msg, ProposeMessage};
+use crate::node::node_utils::{Msg, ProposeMessage, OperationType};
 use std::sync::{Arc, RwLock};
 use crate::ClusterState;
+use crate::storage_proto::CreateRequest;
+use crate::server::{RaftProcessedResponse, COUNTER};
+use crate::errors::request_errors::ClientGrpcRequestProcessingError;
+use crate::storage_proto::raft_proposal::Operation;
+use crate::storage_proto::{RaftProposal, StorageResponse};
 
 pub struct NodeCommServer{
     pub tx: Sender<crate::node::node_utils::Msg>,
@@ -37,25 +43,53 @@ impl NodeComm for NodeCommServer {
  }
 
 
- //send the proosal 
+ //send the proosal, 
+ //function will be called when the node forward the message 
+ //function get called in the codition , when calling node is node the leader  
   async fn forward_proposal(&self , request: Request<ForwardProposalRequest> ) -> Result<Response<ForwardProposalResponse>, Status> {
   
-  let request = request.into_inner();
- 
-   //create the proposal 
-   let proposal_data = raft::eraftpb::Message::parse_from_bytes(&request.proposal_data)
-    .map_err(|e| Status::internal(format!("decode failed: {}", e)))?;
+        let request_val = request.into_inner();
+        
+        //deserealize the request
+        let main_data = CreateRequest::decode(request_val.proposal_data.as_slice()).unwrap(); 
 
-    let raft_msg = Msg::Raft(proposal_data);
-    self.tx.send(raft_msg).await.map_err(|e| Status::internal(format!("send failed: {}", e)))?;
+        let unique_id = main_data.unique_id.clone();
 
-    //create the response 
-    let response = ForwardProposalResponse {
-        success : true,
-        message : "Proposal forwarded successfully".to_string()
-    };
+        //use the tokio oneshot to create 
+        let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
+        
+        //forge the propose msg for raft 
+        let id = unsafe{COUNTER + 1};
 
-    Ok(Response::new(response))
+        let raft_proposal = RaftProposal{
+           proposal_id : id, 
+           operation:Some(Operation::Create(main_data))
+        };
+
+        let mut data_buffer = Vec::new();
+        raft_proposal.encode(&mut data_buffer).map_err(|e| Status::internal(format!("server error: {}", e)))?;
+        
+        let propose_msg_data: ProposeMessage = ProposeMessage{
+            id : id,
+             data : data_buffer,
+             operation_type : OperationType::Create,
+             response_tx: tx 
+        };
+
+        self.tx.send(Msg::Propose { proposemsg: propose_msg_data }).await.map_err(|e| Status::internal(e.to_string()))?;
+
+        let result = rx.await.map_err(|e| Status::internal(e.to_string()))?;
+        match result {
+            Ok(_) => {
+              let response_val = ForwardProposalResponse{
+               success: true, 
+               message: format!("value with key '{}' successfully created", unique_id)
+              };
+                                
+                Ok(Response::new(response_val))
+            }
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
   }
 
   //get the cluster info 
@@ -65,7 +99,7 @@ let state = self.cluster_state.read().unwrap();
 //create vector of peer info by iterating through hashmap from state cluster 
 let mut peers = Vec::new();
 
-for values in self.cluster_state.read().unwrap().peers.iter().enumerate(){
+for values in state.peers.iter().enumerate(){
    let peer_info = PeerInfo {
     node_id : values.0 as u64,
     address : values.1.1.to_string(),
@@ -78,16 +112,12 @@ for values in self.cluster_state.read().unwrap().peers.iter().enumerate(){
     peers : peers
  };
 
- 
-
  Ok(Response::new(response))   
  
  }
 
  async fn join_cluster(&self, request: Request<JoinClusterRequest>)-> Result<Response<JoinClusterResponse>, Status> {
- let request = request.into_inner();
- 
- 
+ let request = request.into_inner(); 
  
   let response = JoinClusterResponse {
     success : true,

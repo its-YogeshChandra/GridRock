@@ -19,7 +19,7 @@ pub struct RaftProcessedResponse{
     pub data : Option<CreateRequest>
 }
 
-static mut COUNTER: u64 = 0;
+pub static mut COUNTER: u64 = 0;
 
 #[tonic::async_trait]
 impl GridRock for StorageServer {
