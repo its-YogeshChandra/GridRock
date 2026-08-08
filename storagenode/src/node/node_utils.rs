@@ -1,8 +1,9 @@
 use crate::storage_proto::{CreateRequest, DelValRequest, GetValRequest, UpdateRequest};
+use protobuf::Message as protobufMessage;
 use raft::eraftpb;
 use prost::Message;
-use raft::{Config, Error, StateRole, raw_node::RawNode, storage::MemStorage};
-use slog::{Discard, o};
+use raft::{Config, StateRole, raw_node::RawNode, storage::MemStorage};
+use slog::{o};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc::Receiver, oneshot};
@@ -231,10 +232,12 @@ fn process_ready_state(
                 raft::eraftpb::EntryType::EntryConfChange => {
                     // Handle configuration change entry
 
-                   //there is no decode function  
-                    let config_change_data = eraftpb::ConfChange::new();
+                   //there is no decode function 
+                   let mut conf_change_data = eraftpb::ConfChange::default();
+                   conf_change_data.merge_from_bytes(&entry.data);
+                   
                    //apply the data to the raft node 
-                   let conf_state = node.apply_conf_change(&config_change_data).unwrap();    
+                   let conf_state = node.apply_conf_change(&conf_change_data).unwrap();    
                    node.mut_store().wl().set_conf_state(conf_state); 
 
                 }
@@ -349,10 +352,8 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
             },
             Ok(Some(Msg::ConfChange{confchange_msg})) => {
                 //handle the conf change request
-                let mut context : Vec<u8> = vec![];
-                confchange_msg.id.encode(&mut context).unwrap();
 
-                match node.propose_conf_change(context, confchange_msg.cc) {
+                match node.propose_conf_change(confchange_msg.id.to_be_bytes().to_vec(), confchange_msg.cc) {
                     Ok(_) => {
                         if node.has_ready() {
                             process_ready_state(&mut node, &mut cbs);
