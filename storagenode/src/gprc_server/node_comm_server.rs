@@ -116,15 +116,15 @@ for values in state.peers.iter().enumerate(){
  
  }
 
+ //function to handle join cluster request 
  async fn join_cluster(&self, request: Request<JoinClusterRequest>)-> Result<Response<JoinClusterResponse>, Status> {
  
  let request_val = request.into_inner();
 
  //check if node id from request is already exists in the cluster 
-//send the error back to the client 
+ //send the error back to the client 
  let peers ={
-  let state =
-  self.cluster_state.read().unwrap();
+  let state = self.cluster_state.read().unwrap();
   state.peers.clone()
  };
   
@@ -132,32 +132,52 @@ for values in state.peers.iter().enumerate(){
   return Err(Status::internal("Node already exists in the cluster")); 
  }
 
- 
-// forge the conf change message 
-let cc = raft::eraftpb::ConfChange{
-   node_id: request_val.node_id,
-   change_type: raft::eraftpb::ConfChangeType::AddNode,
-   context: Bytes::from(request_val.address), //bytes of the address of the node ,
-   id : unsafe{COUNTER + 1},
-   unknown_fields : protobuf::UnknownFields::default(),
-   cached_size: protobuf::CachedSize::default(), 
-};
+ // create oneshot channel to wait for raft commit result
+ let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
 
-   // create raft message used in msg enum confchange field   
-    let cc_msg = ConfChangeMessage{
-    id: unsafe{COUNTER + 1},
+ let id = unsafe { COUNTER + 1 };
+
+ // forge the conf change message 
+ let cc = raft::eraftpb::ConfChange{
+    node_id: request_val.node_id,
+    change_type: raft::eraftpb::ConfChangeType::AddNode,
+    context: Bytes::from(request_val.address),
+    id: id,
+    unknown_fields: protobuf::UnknownFields::default(),
+    cached_size: protobuf::CachedSize::default(), 
+ };
+
+ // create raft message used in msg enum confchange field   
+ let cc_msg = ConfChangeMessage{
+    id: id,
     cc: cc,
-    };
+    response_tx: tx,
+ };
 
-    self.tx.send(Msg::ConfChange { confchange_msg: cc_msg }).await.map_err(|e| Status::internal(e.to_string()))?;
-  
-    let response = JoinClusterResponse {
-    success : true,
-    message : "Node joined successfully".to_string(),
-    peers : vec![]
-  };
+ self.tx.send(Msg::ConfChange { confchange_msg: cc_msg }).await.map_err(|e| Status::internal(e.to_string()))?;
 
-  Ok(Response::new(response))
+ // wait for the conf change to be committed by raft
+ let result = rx.await.map_err(|e| Status::internal(e.to_string()))?;
+ match result {
+    Ok(_) => {
+        // Build peer list from the current cluster state after commit
+        let peer_list = {
+            let state = self.cluster_state.read().unwrap();
+            state.peers.iter().map(|(id, addr)| PeerInfo {
+                node_id: *id,
+                address: addr.clone(),
+            }).collect()
+        };
+
+        let response = JoinClusterResponse {
+            success: true,
+            message: "Node joined successfully".to_string(),
+            peers: peer_list,
+        };
+        Ok(Response::new(response))
+    }
+    Err(e) => Err(Status::internal(e.to_string())),
+ }
  }  
 
 

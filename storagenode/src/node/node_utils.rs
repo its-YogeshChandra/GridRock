@@ -56,7 +56,8 @@ pub struct ProposeMessage {
 }
 pub struct ConfChangeMessage{
     pub id: u64,
-    pub cc: eraftpb::ConfChange
+    pub cc: eraftpb::ConfChange,
+    pub response_tx: oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>,
 }
 
 
@@ -231,16 +232,43 @@ fn process_ready_state(
                     append_committed_entry(entry, cbs, &db);
                 }
                 raft::eraftpb::EntryType::EntryConfChange => {
-                    // Handle configuration change entry
+                    // Deserialize the ConfChange from committed entry data
+                    let mut conf_change_data = eraftpb::ConfChange::default();
+                    conf_change_data.merge_from_bytes(&entry.data).ok().unwrap();
 
-                   //there is no decode function 
-                   let mut conf_change_data = eraftpb::ConfChange::default();
-                   conf_change_data.merge_from_bytes(&entry.data);
-                   
-                   //apply the data to the raft node 
-                   let conf_state = node.apply_conf_change(&conf_change_data).unwrap();    
-                   node.mut_store().wl().set_conf_state(conf_state); 
+                    // Apply the conf change to the raft node
+                    let conf_state = node.apply_conf_change(&conf_change_data).unwrap();
+                    node.mut_store().wl().set_conf_state(conf_state);
 
+                    // Update the cluster state with new peer
+                    let peer_address = String::from_utf8(conf_change_data.context.to_vec())
+                        .unwrap_or_default();
+
+                    if let Some(ref cluster_state_ref) = cluster_state {
+                        let mut state = cluster_state_ref.write().unwrap();
+
+                       //check for the new node change type (addition or removal) 
+                        match conf_change_data.get_change_type() {
+                            eraftpb::ConfChangeType::AddNode => {
+                                state.peers.insert(conf_change_data.node_id, peer_address);
+                            }
+                            eraftpb::ConfChangeType::RemoveNode => {
+                                state.peers.remove(&conf_change_data.node_id);
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Send success response back via the callback channel
+                    // The conf change id was encoded as 8-byte big-endian in the entry context
+                    let conf_change_id = conf_change_data.id;
+                    if let Some(sender) = cbs.remove(&conf_change_id) {
+                        let _ = sender.send(Ok(RaftProcessedResponse {
+                            id: Some(conf_change_data.node_id.to_string()),
+                            success: true,
+                            data: None,
+                        }));
+                    }
                 }
                 raft::eraftpb::EntryType::EntryConfChangeV2 => {
                     // Handle configuration change v2 entry
@@ -353,9 +381,12 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
             },
             Ok(Some(Msg::ConfChange{confchange_msg})) => {
                 //handle the conf change request
+                let cc_id = confchange_msg.id;
 
-                match node.propose_conf_change(confchange_msg.id.to_be_bytes().to_vec(), confchange_msg.cc) {
+                // Store the callback so we can respond when the conf change is committed
+                cbs.insert(cc_id, confchange_msg.response_tx);
 
+                match node.propose_conf_change(cc_id.to_be_bytes().to_vec(), confchange_msg.cc) {
                     Ok(_) => {
                         if node.has_ready() {
                             process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone()));
@@ -363,6 +394,10 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                     }
                     Err(e) => {
                         eprintln!("Error proposing conf change: {:?}", e);
+                        // Remove and notify the caller about the failure
+                        if let Some(sender) = cbs.remove(&cc_id) {
+                            let _ = sender.send(Err(ClientGrpcRequestProcessingError::NodeUnaware));
+                        }
                     }
                 }
             }
