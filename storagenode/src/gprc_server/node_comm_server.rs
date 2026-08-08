@@ -117,8 +117,17 @@ for values in state.peers.iter().enumerate(){
  }
 
  async fn join_cluster(&self, request: Request<JoinClusterRequest>)-> Result<Response<JoinClusterResponse>, Status> {
- let request = request.into_inner(); 
- 
+ let request = request.into_inner();
+
+ //check if node id from request is already exists in the cluster 
+//send the error back to the client 
+ let state = self.cluster_state.read().unwrap();
+ if state.peers.contains_key(&request.node_id) {
+  return Err(Status::internal("Node already exists in the cluster")); 
+ }
+
+/
+
   let response = JoinClusterResponse {
     success : true,
     message : "Node joined successfully".to_string(),

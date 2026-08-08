@@ -53,10 +53,17 @@ pub struct ProposeMessage {
     pub operation_type: OperationType,
     pub response_tx: oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>,
 }
+pub struct ConfChangeMessage{
+    pub id: u64,
+    pub cc: eraftpb::ConfChange
+}
+
+
 
 pub enum Msg {
     Propose { proposemsg: ProposeMessage },
     Raft(eraftpb::Message),
+    ConfChange{confchange_msg: ConfChangeMessage},
     // You can add more message types here if needed
 }
 
@@ -340,6 +347,22 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                     eprintln!("Error stepping raft node: {:?}", e);
                 }
             },
+            Ok(Some(Msg::ConfChange{confchange_msg})) => {
+                //handle the conf change request
+                let mut context : Vec<u8> = vec![];
+                confchange_msg.id.encode(&mut context).unwrap();
+
+                match node.propose_conf_change(context, confchange_msg.cc) {
+                    Ok(_) => {
+                        if node.has_ready() {
+                            process_ready_state(&mut node, &mut cbs);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error proposing conf change: {:?}", e);
+                    }
+                }
+            }
 
             Ok(None) => {
                 unimplemented!("Channel disconnected");
