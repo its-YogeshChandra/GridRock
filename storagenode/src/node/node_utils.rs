@@ -176,6 +176,7 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
 fn process_ready_state(
     node: &mut RawNode<MemStorage>,
     cbs: &mut HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>>,
+    cluster_state: Option<Arc<RwLock<ClusterState>>>,
 ) {
     if !node.has_ready() {
         return;
@@ -336,14 +337,14 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
 
                 //check if raft node has data to be processed
                 if node.has_ready() {
-                    process_ready_state(&mut node, &mut cbs);
+                    process_ready_state(&mut node, &mut cbs, None);
                 }
             }
 
             Ok(Some(Msg::Raft(msg))) => match node.step(msg) {
                 Ok(_) => {
                     if node.has_ready() {
-                        process_ready_state(&mut node, &mut cbs);
+                        process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone()));
                     }
                 }
                 Err(e) => {
@@ -354,9 +355,10 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                 //handle the conf change request
 
                 match node.propose_conf_change(confchange_msg.id.to_be_bytes().to_vec(), confchange_msg.cc) {
+
                     Ok(_) => {
                         if node.has_ready() {
-                            process_ready_state(&mut node, &mut cbs);
+                            process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone()));
                         }
                     }
                     Err(e) => {
@@ -384,7 +386,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
 
             //check if raft node has data to be processed
             if node.has_ready() {
-                process_ready_state(&mut node, &mut cbs);
+                process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone()));
             }
         } else {
             remaining_timeout -= elapsed;
