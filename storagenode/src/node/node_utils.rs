@@ -1,3 +1,4 @@
+use crate::node_comm::RaftMessageRequest;
 use crate::storage_proto::{CreateRequest, DelValRequest, GetValRequest, UpdateRequest};
 use protobuf::Message as protobufMessage;
 use raft::eraftpb;
@@ -5,6 +6,7 @@ use prost::Message;
 use raft::{Config, StateRole, raw_node::RawNode, storage::MemStorage};
 use slog::{o};
 use std::collections::HashMap;
+use std::net::Ipv6Addr;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc::Receiver, oneshot};
 use tokio::time::timeout;
@@ -15,6 +17,10 @@ use crate::storage_proto::RaftProposal;
 use crate::storage_proto::raft_proposal::Operation;
 use std::sync::{Arc, RwLock};
 use crate::ClusterState;
+use crate::grpc_client::node_comm_client::{forward_proposal, send_raft_message, get_cluster_info, join_cluster};
+
+
+
 //Create a private module to "seal" the trait
 mod private {
     pub trait Sealed {}
@@ -68,6 +74,19 @@ pub enum Msg {
     ConfChange{confchange_msg: ConfChangeMessage},
     // You can add more message types here if needed
 }
+
+//helper function to get ip6 address  
+pub fn get_port_from_address(address: &str) -> u16{
+  let address = address.split(":").last().unwrap();
+  address.parse::<u16>().unwrap()
+}
+
+//helper function to get ip6 address 
+pub fn get_ip_from_address(address: &str) -> Ipv6Addr{
+    let ip = address.split(":").next().unwrap();
+    ip.parse::<Ipv6Addr>().unwrap()
+}
+
 
 pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>>, db: &rocksdb::DB) {
     //check if the entry is data entry
@@ -174,7 +193,7 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
 }
 
 //helper function to process the ready state of the raft node
-fn process_ready_state(
+async fn process_ready_state(
     node: &mut RawNode<MemStorage>,
     cbs: &mut HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>>,
     cluster_state: Option<Arc<RwLock<ClusterState>>>,
@@ -187,8 +206,44 @@ fn process_ready_state(
 
     // Process messages
     if !ready.messages().is_empty() {
+        
         for msg in ready.take_messages() {
-            // Handle messages (e.g., send to other nodes)
+        
+        let mut peer_list: Vec<String> = vec![];         
+        
+        if let Some(ref value) = cluster_state{
+            let cluster_state_lock = value.read().unwrap(); //returns hashmap 
+            //iterate over hashmap and push the address in peerlist
+            for (key, value) in cluster_state_lock.peers.iter(){
+                peer_list.push(value.clone());
+            }
+        }
+
+        //iterate over the peer list 
+        for peer in &peer_list{
+        
+        //extract address and port from peer string
+        let peer_port = get_port_from_address(peer);
+        let peer_address = get_ip_from_address(peer);
+    
+    //used unwrap ( future me problem )
+       let msg_bytes = msg.write_to_bytes().unwrap(); 
+   
+        //contruct the message request 
+        let message= RaftMessageRequest {
+            message: msg_bytes,
+        };
+        
+        let client_response = send_raft_message(peer_address, peer_port, message).await;
+        match client_response {
+            Ok(response) => {
+                
+            }
+            Err(e) => {
+                eprintln!("Failed to send raft message: {}", e);
+            }
+        }
+        }  
             
         }
     }

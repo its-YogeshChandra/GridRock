@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("[::1]:{}", config.port).parse()?;
     println!("Server is listening on port {}", config.port);
 
-    // Create the mpsc channel for sending messages to the raft processor
+    // Create the tokio mpsc channel for sending messages to the raft processor
     let (tx, rx) = channel::<Msg>(100);
 
     // Create the raft node with the configured ID and peer list
