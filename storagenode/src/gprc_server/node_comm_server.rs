@@ -1,11 +1,11 @@
-use prost::Message;
+use prost::{Message, bytes::Bytes};
 //gprc server side functions for node to node communication
 use tonic::{Request, Response, Status};
 use crate::node_comm::{ForwardProposalRequest, ForwardProposalResponse, GetClusterInfoRequest, GetClusterInfoResponse, JoinClusterRequest, JoinClusterResponse, RaftMessageRequest, RaftMessageResponse, node_comm_server::NodeComm, PeerInfo};  
 use tokio::sync::{mpsc::{Sender}, oneshot};
 use tokio;
 use protobuf::Message as ProtobufMessage;
-use crate::node::node_utils::{Msg, ProposeMessage, OperationType};
+use crate::node::node_utils::{Msg, ProposeMessage, OperationType, ConfChangeMessage};
 use std::sync::{Arc, RwLock};
 use crate::ClusterState;
 use crate::storage_proto::CreateRequest;
@@ -117,17 +117,39 @@ for values in state.peers.iter().enumerate(){
  }
 
  async fn join_cluster(&self, request: Request<JoinClusterRequest>)-> Result<Response<JoinClusterResponse>, Status> {
- let request = request.into_inner();
+ 
+ let request_val = request.into_inner();
 
  //check if node id from request is already exists in the cluster 
 //send the error back to the client 
- let state = self.cluster_state.read().unwrap();
- if state.peers.contains_key(&request.node_id) {
+ let peers ={
+  let state =
+  self.cluster_state.read().unwrap();
+  state.peers.clone()
+ };
+  
+ if peers.contains_key(&request_val.node_id) {
   return Err(Status::internal("Node already exists in the cluster")); 
  }
 
-/
+ 
+// forge the conf change message 
+let cc = raft::eraftpb::ConfChange{
+    node_id: request_val.node_id,
+    change_type: raft::eraftpb::ConfChangeType::AddNode,
+   context: Bytes::from(request_val.address), //bytes of the address of the node ,
+   id : unsafe{COUNTER + 1},
+   unknown_fields : protobuf::UnknownFields::default(),
+   cached_size: protobuf::CachedSize::default(), 
+  };
+    
+    let cc_msg = ConfChangeMessage{
+    id: unsafe{COUNTER + 1},
+    cc: cc,
+};
 
+ self.tx.send(Msg::ConfChange { confchange_msg: cc_msg }).await.map_err(|e| Status::internal(e.to_string()))?;
+  
   let response = JoinClusterResponse {
     success : true,
     message : "Node joined successfully".to_string(),
