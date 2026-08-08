@@ -13,6 +13,7 @@ pub struct StorageServer{
     pub tx: Sender<crate::node::node_utils::Msg>
 }
 
+#[derive(Debug)]
 pub struct RaftProcessedResponse{
     pub id : Option<String>,
     pub success : bool,
