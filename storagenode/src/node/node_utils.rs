@@ -22,26 +22,26 @@ use crate::grpc_client::node_comm_client::{forward_proposal, send_raft_message, 
 
 
 //Create a private module to "seal" the trait
-mod private {
-    pub trait Sealed {}
+// mod private {
+//     pub trait Sealed {}
 
-    // Implement the private trait ONLY for your specific structs
-    impl Sealed for super::GetValRequest {}
-    impl Sealed for super::UpdateRequest {}
-    impl Sealed for super::CreateRequest {}
-    impl Sealed for super::DelValRequest {}
-}
+//     // Implement the private trait ONLY for your specific structs
+//     impl Sealed for super::GetValRequest {}
+//     impl Sealed for super::UpdateRequest {}
+//     impl Sealed for super::CreateRequest {}
+//     impl Sealed for super::DelValRequest {}
+// }
 
-//Define the public trait and require the private `Sealed` bound
-pub trait AllowedTypes: private::Sealed {
-    // You can also add common methods here if needed
-}
+// //Define the public trait and require the private `Sealed` bound
+// pub trait AllowedTypes: private::Sealed {
+//     // You can also add common methods here if needed
+// }
 
-//Implement the public trait for your structs
-impl AllowedTypes for GetValRequest {}
-impl AllowedTypes for UpdateRequest {}
-impl AllowedTypes for CreateRequest {}
-impl AllowedTypes for DelValRequest {}
+// //Implement the public trait for your structs
+// impl AllowedTypes for GetValRequest {}
+// impl AllowedTypes for UpdateRequest {}
+// impl AllowedTypes for CreateRequest {}
+// impl AllowedTypes for DelValRequest {}
 
 //the correct messaage type is needed
 
@@ -89,50 +89,53 @@ pub fn get_ip_from_address(address: &str) -> Ipv6Addr{
 
 //helper function to send message 
 pub async fn send_messages(msg: eraftpb::Message, cluster_state: Option<Arc<RwLock<ClusterState>>>) -> bool {
- // Handle persisted messages (e.g., send to other nodes) 
-        let mut peer_list: Vec<String> = vec![];         
-        
-        if let Some(ref value) = cluster_state{
-            let cluster_state_lock = value.read().unwrap(); //returns hashmap 
-            //iterate over hashmap and push the address in peerlist
-            for (_ , value) in cluster_state_lock.peers.iter(){
-                peer_list.push(value.clone());
+ // Handle persisted messages (e.g., send to other nodes)  
+    let receiver_id = msg.to;
+    let receiver_address_string: String = match cluster_state {
+        Some(ref value) => {
+            let cluster_state_lock = value.read().unwrap(); //returns hashmap
+            match cluster_state_lock.peers.get(&receiver_id) {
+                Some(address) => address.clone(),
+                None => {
+                    eprintln!("Failed to get address for receiver id {}", receiver_id);
+                    return false;
+                }
             }
         }
-
-        //iterate over the peer list 
-        for peer in &peer_list{
+        None => {
+            eprintln!("No cluster state available; cannot send message to peer {}", receiver_id);
+            return false;
+        }
+    };
         
-        //extract address and port from peer string
-        let peer_port = get_port_from_address(peer);
-        let peer_address = get_ip_from_address(peer);
+        
+    //extract address and port from peer string
+    let receiver_port = get_port_from_address(&receiver_address_string);
+    let receiver_address = get_ip_from_address(&receiver_address_string);
     
-        //used unwrap ( future me problem )
-        let msg_bytes = msg.write_to_bytes().unwrap(); 
+    //used unwrap ( future me problem )
+    let msg_bytes = msg.write_to_bytes().unwrap(); 
    
-        //contruct the message request 
-        let message= RaftMessageRequest {
-            message: msg_bytes,
-        };
+    //contruct the message request 
+    let message= RaftMessageRequest {
+        message: msg_bytes,
+    };
         
-        let client_response = send_raft_message(peer_address, peer_port, message).await;
-        match client_response {
-            Ok(_) => {
-               eprintln!("Message sent to peer {}", peer_address);  
-               continue  
-            }
-            Err(e) => {
-                eprintln!("Failed to send raft message: {}", e);
-               return false
-            }
+    let client_response = send_raft_message(receiver_address, receiver_port, message).await;
+    match client_response {
+        Ok(_) => {
+            eprintln!("Message sent to peer {}", receiver_address);  
         }
-        }  
-        
-        true  
+        Err(e) => {
+            eprintln!("Failed to send raft message: {}", e);
+            return false
+        }
+    }  
+    true  
 }
 
 
-
+//helper function to commit the entry in the key value store
 pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>>, db: &rocksdb::DB) {
     //check if the entry is data entry
     let proposal = match RaftProposal::decode(entry.data.as_ref()) {
@@ -253,8 +256,10 @@ async fn process_ready_state(
         
         for msg in ready.take_messages() {
 
-        let value = send_messages(msg, cluster_state.clone());
-
+        let send_response = send_messages(msg, cluster_state.clone()).await;
+        if !send_response {
+            eprintln!("Failed to send raft message");
+            return; 
         }
     }
 
@@ -572,4 +577,3 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
     }
 
 }
-
