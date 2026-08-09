@@ -9,6 +9,7 @@ use tokio::sync::{mpsc::{Sender}, oneshot};
 use crate::node::node_utils::{Msg, OperationType, ProposeMessage};
 use crate::errors::request_errors::ClientGrpcRequestProcessingError;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 pub struct StorageServer{
     pub tx: Sender<crate::node::node_utils::Msg>
 }
@@ -19,8 +20,9 @@ pub struct RaftProcessedResponse{
     pub success : bool,
     pub data : Option<CreateRequest>
 }
-use std::sync::atomic::{AtomicU64, Ordering};
 
+
+//counter for the id of the request send by grpc handler to the processing node loop 
 pub static COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[tonic::async_trait]
