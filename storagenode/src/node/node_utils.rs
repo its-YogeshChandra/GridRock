@@ -1,5 +1,4 @@
 use crate::node_comm::RaftMessageRequest;
-use crate::storage_proto::{CreateRequest, DelValRequest, GetValRequest, UpdateRequest};
 use protobuf::Message as protobufMessage;
 use raft::eraftpb;
 use prost::Message;
@@ -17,7 +16,7 @@ use crate::storage_proto::RaftProposal;
 use crate::storage_proto::raft_proposal::Operation;
 use std::sync::{Arc, RwLock};
 use crate::ClusterState;
-use crate::grpc_client::node_comm_client::{forward_proposal, send_raft_message, get_cluster_info, join_cluster};
+use crate::grpc_client::node_comm_client::{forward_proposal, send_raft_message};
 
 
 
@@ -81,18 +80,6 @@ pub enum Msg {
     Raft(eraftpb::Message),
     ConfChange{confchange_msg: ConfChangeMessage},
     // You can add more message types here if needed
-}
-
-//helper function to get ip6 address  
-pub fn get_port_from_address(address: &str) -> u16{
-  let address = address.split(":").last().unwrap();
-  address.parse::<u16>().unwrap()
-}
-
-//helper function to get ip6 address 
-pub fn get_ip_from_address(address: &str) -> Ipv6Addr{
-    let ip = address.split(":").next().unwrap();
-    ip.parse::<Ipv6Addr>().unwrap()
 }
 
 //helper function to get the ipv6 address and port from the address string
@@ -602,8 +589,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
             }
 
             Err(_) => {
-                // Timeout occurred, drive the Raft node
-                node.tick();
+             panic!("Channel disconnected");   // Timeout occurred, drive the Raft node
             }
         }
 

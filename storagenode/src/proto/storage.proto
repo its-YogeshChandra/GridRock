@@ -25,6 +25,14 @@ message DelValRequest {
 message StorageResponse{
     string message = 1;
     bool success = 2;
+
+    // Data fields — populated only for Get responses
+    optional string unique_id = 3;
+    optional uint64 balance = 4;
+    optional bool executable = 5;
+    optional uint64 rent_epoch = 6;
+    optional string data_hash = 7;
+    optional uint64 last_updated_slot = 8;
 }    
 
 // Wrapper message for Raft log entries.

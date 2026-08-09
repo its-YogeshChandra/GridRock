@@ -68,6 +68,7 @@ impl GridRock for StorageServer {
                 let response_val = StorageResponse {
                     message: format!("Value with key '{}' successfully created", unique_id),
                     success: true,
+                    ..Default::default()
                 };
                 Ok(Response::new(response_val))
             }
@@ -112,6 +113,7 @@ impl GridRock for StorageServer {
                 let response_val = StorageResponse {
                     message: format!("Value with key '{}' successfully updated", unique_id),
                     success: true,
+                    ..Default::default()
                 };
                 Ok(Response::new(response_val))
             }
@@ -152,11 +154,23 @@ impl GridRock for StorageServer {
 
         let result = rx.await.map_err(|e| Status::internal(e.to_string()))?;
         match result {
-            Ok(_) => {
-                let response_val = StorageResponse {
-                    message: format!("Value with key '{}' successfully updated", unique_id),
+            Ok(response) => {
+                let mut response_val = StorageResponse {
+                    message: format!("Value with key '{}' retrieved successfully", unique_id),
                     success: true,
+                    ..Default::default()
                 };
+
+                // Populate the data fields from the record if present
+                if let Some(record) = response.data {
+                    response_val.unique_id = Some(record.unique_id);
+                    response_val.balance = Some(record.balance);
+                    response_val.executable = Some(record.executable);
+                    response_val.rent_epoch = Some(record.rent_epoch);
+                    response_val.data_hash = Some(record.data_hash);
+                    response_val.last_updated_slot = Some(record.last_updated_slot);
+                }
+
                 Ok(Response::new(response_val))
             }
             Err(e) => Err(Status::internal(e.to_string())),
@@ -199,6 +213,7 @@ impl GridRock for StorageServer {
                 let response_val = StorageResponse {
                     message: format!("Value with key '{}' successfully deleted", unique_id),
                     success: true,
+                    ..Default::default()
                 };
                 Ok(Response::new(response_val))
             }
