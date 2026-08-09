@@ -1,14 +1,77 @@
 #docker file for the storage node
 #file will create the build in three stage 
-    #build stage 
-    #dependecy caching stage 
+    #build stage -- with dependency caching  
     #final image stage
 
-#create the base image 
-FROM rust:latest AS builder
+#-------------------------------------------------
+#stage 1 : builder stage 
+
+#use the base image as builder 
+FROM rust:1.91.1-bookworm AS builder
 
 #create the working dir
 WORKDIR /app
 
+#create dummy/ stub source file 
+RUN mkdir -p ./src && echo "fn main() {}" > ./src/main.rs
+
 #copy the cargo toml and lock file 
-COPY Cargo.toml Cargo.lock ./    
+COPY Cargo.toml Cargo.lock ./   
+
+#run build command -- build everything at this stage 
+RUN cargo build --release
+
+#remove the dummy/ stub source file 
+RUN rm -rf ./src 
+
+#create new source file so cargo knows they are newer files 
+RUN touch -a ./src/main.rs
+COPY src/ ./src/
+COPY build.rs ./
+
+#build the real storage node binary 
+RUN cargo build --release  
+
+#install dependencies which are needed to be persist 
+
+
+#----------------------------------------
+# stage 2: Runtime 
+#base image 
+FROM debian:bookworm-slim AS runtime
+
+#install build runtime dependencies 
+RUN apt-get update && apt-get install -y \
+    curl \
+    protobuf-compiler \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+    #add more if any 
+    
+WORKDIR /app
+
+#copy the compiled binary from the builder stage 
+COPY --from=builder /app/target/release/storagenode ./storagenode
+
+#create non-root user and group 
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser 
+
+#copy the config folder from the host to the container 
+COPY --from=builder /app/configs ./configs 
+
+#copy the cargo toml and lock file 
+COPY Cargo.toml Cargo.lock ./ 
+
+# rebuild dependencies only if those files changed
+RUN cargo build --release --no-default-features 
+
+#create non root user for security 
+RUN useradd --create-home --shell /bin/bash appuser
+RUN chown -R appuser:appgroup /app
+
+#using user is app user
+#guess it blocks root access to the container 
+USER appuser 
+
+CMD ["./storagenode"]
+

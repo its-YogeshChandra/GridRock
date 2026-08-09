@@ -19,7 +19,6 @@ use node::node_utils::{create_raft_node, Msg};
 mod grpc_client;
 mod errors;
 use std::collections::HashMap;
-use std::io::Write;
 
 pub struct ClusterState {
     pub leader_id: u64,
@@ -33,59 +32,47 @@ struct NodeConfig {
     peer_registry: HashMap<u64, String>,
 }
 
-/// Reads node configuration from stdin at startup.
+/// Reads node configuration from environment variables.
 ///
-/// Prompts for:
-///   - Node ID (u64)
-///   - Port (u16)  
-///   - Number of peers in the cluster (including self)
-///   - For each peer: "id:address" (e.g. "2:[::1]:50052")
-///
-/// Returns a NodeConfig with all parsed values.
+/// Required env vars:
+///   - NODE_ID   : u64 — this node's raft ID (e.g. "1")
+///   - NODE_PORT : u16 — gRPC port to listen on (e.g. "50051")
+///   - NODE_PEERS: comma-separated list of "id:address" for all nodes including self
+///                 (e.g. "1:[::1]:50051,2:[::1]:50052,3:[::1]:50053")
 fn read_node_config() -> NodeConfig {
-    let mut input = String::new();
+    let node_id: u64 = std::env::var("NODE_ID")
+        .expect("NODE_ID env var is required")
+        .parse()
+        .expect("NODE_ID must be a valid u64");
 
-    // Read node ID
-    print!("Enter node ID: ");
-    std::io::stdout().flush().unwrap();
-    std::io::stdin().read_line(&mut input).expect("Failed to read node ID");
-    let node_id: u64 = input.trim().parse().expect("Invalid node ID");
-    input.clear();
+    let port: u16 = std::env::var("NODE_PORT")
+        .expect("NODE_PORT env var is required")
+        .parse()
+        .expect("NODE_PORT must be a valid u16");
 
-    // Read port
-    print!("Enter port: ");
-    std::io::stdout().flush().unwrap();
-    std::io::stdin().read_line(&mut input).expect("Failed to read port");
-    let port: u16 = input.trim().parse().expect("Invalid port");
-    input.clear();
+    let peers_raw = std::env::var("NODE_PEERS")
+        .expect("NODE_PEERS env var is required (e.g. '1:[::1]:50051,2:[::1]:50052,3:[::1]:50053')");
 
-    // Read number of peers
-    print!("Enter number of peers (including self): ");
-    std::io::stdout().flush().unwrap();
-    std::io::stdin().read_line(&mut input).expect("Failed to read peer count");
-    let peer_count: usize = input.trim().parse().expect("Invalid peer count");
-    input.clear();
-
-    // Read each peer as "id:address"
     let mut peer_ids: Vec<u64> = Vec::new();
     let mut peer_registry: HashMap<u64, String> = HashMap::new();
 
-    for i in 0..peer_count {
-        print!("Enter peer {} (id:address, e.g. 2:[::1]:50052): ", i + 1);
-        std::io::stdout().flush().unwrap();
-        std::io::stdin().read_line(&mut input).expect("Failed to read peer");
-
-        let trimmed = input.trim();
+    for peer_entry in peers_raw.split(',') {
+        let trimmed = peer_entry.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
         // Split on first ':' only — address itself may contain ':'
-        let colon_pos = trimmed.find(':').expect("Invalid format, expected id:address");
+        let colon_pos = trimmed.find(':').expect("Invalid NODE_PEERS format, expected id:address");
         let id_str = &trimmed[..colon_pos];
         let addr_str = &trimmed[colon_pos + 1..];
 
-        let peer_id: u64 = id_str.parse().expect("Invalid peer ID");
+        let peer_id: u64 = id_str.parse().expect("Invalid peer ID in NODE_PEERS");
         peer_ids.push(peer_id);
         peer_registry.insert(peer_id, addr_str.to_string());
+    }
 
-        input.clear();
+    if peer_ids.is_empty() {
+        panic!("NODE_PEERS must contain at least one peer entry");
     }
 
     NodeConfig {
