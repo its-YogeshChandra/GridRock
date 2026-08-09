@@ -1,0 +1,14 @@
+#docker file for the storage node
+#file will create the build in three stage 
+    #build stage 
+    #dependecy caching stage 
+    #final image stage
+
+#create the base image 
+FROM rust:latest AS builder
+
+#create the working dir
+WORKDIR /app
+
+#copy the cargo toml and lock file 
+COPY Cargo.toml Cargo.lock ./    
