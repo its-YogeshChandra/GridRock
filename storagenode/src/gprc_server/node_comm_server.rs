@@ -12,7 +12,8 @@ use crate::storage_proto::CreateRequest;
 use crate::server::{RaftProcessedResponse, COUNTER};
 use crate::errors::request_errors::ClientGrpcRequestProcessingError;
 use crate::storage_proto::raft_proposal::Operation;
-use crate::storage_proto::{RaftProposal, StorageResponse};
+use crate::storage_proto::{RaftProposal};
+use std::sync::atomic::{ Ordering};
 
 pub struct NodeCommServer{
     pub tx: Sender<crate::node::node_utils::Msg>,
@@ -21,7 +22,6 @@ pub struct NodeCommServer{
 
 #[tonic::async_trait]
 impl NodeComm for NodeCommServer {
-
   //sending message to raft 
   async fn send_raft_message(&self, request: Request<RaftMessageRequest>) -> Result<Response<RaftMessageResponse>, Status> {
   let request = request.into_inner();
@@ -59,7 +59,7 @@ impl NodeComm for NodeCommServer {
         let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
-        let id = unsafe{COUNTER + 1};
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst); 
 
         let raft_proposal = RaftProposal{
            proposal_id : id, 
@@ -135,7 +135,7 @@ for values in state.peers.iter().enumerate(){
  // create oneshot channel to wait for raft commit result
  let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
 
- let id = unsafe { COUNTER + 1 };
+ let id = COUNTER.fetch_add(1, Ordering::SeqCst); 
 
  // forge the conf change message 
  let cc = raft::eraftpb::ConfChange{

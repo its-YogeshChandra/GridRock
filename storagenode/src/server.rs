@@ -19,8 +19,9 @@ pub struct RaftProcessedResponse{
     pub success : bool,
     pub data : Option<CreateRequest>
 }
+use std::sync::atomic::{AtomicU64, Ordering};
 
-pub static mut COUNTER: u64 = 0;
+pub static COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[tonic::async_trait]
 impl GridRock for StorageServer {
@@ -40,7 +41,7 @@ impl GridRock for StorageServer {
         let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
-        let id = unsafe{COUNTER + 1};
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
 
         let raft_proposal = RaftProposal{
            proposal_id : id, 
@@ -85,7 +86,7 @@ impl GridRock for StorageServer {
         let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
-        let id = unsafe{COUNTER + 1};
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
 
         let raft_proposal = RaftProposal{
            proposal_id : id, 
@@ -129,7 +130,7 @@ impl GridRock for StorageServer {
         let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
-        let id = unsafe{COUNTER + 1};
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
 
         let raft_proposal = RaftProposal{
            proposal_id : id, 
@@ -172,7 +173,7 @@ impl GridRock for StorageServer {
         let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
         //forge the propose msg for raft 
-        let id = unsafe{COUNTER + 1};
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
 
         let raft_proposal = RaftProposal{
            proposal_id : id, 

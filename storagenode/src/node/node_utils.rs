@@ -87,6 +87,51 @@ pub fn get_ip_from_address(address: &str) -> Ipv6Addr{
     ip.parse::<Ipv6Addr>().unwrap()
 }
 
+//helper function to send message 
+pub async fn send_messages(msg: eraftpb::Message, cluster_state: Option<Arc<RwLock<ClusterState>>>) -> bool {
+ // Handle persisted messages (e.g., send to other nodes) 
+        let mut peer_list: Vec<String> = vec![];         
+        
+        if let Some(ref value) = cluster_state{
+            let cluster_state_lock = value.read().unwrap(); //returns hashmap 
+            //iterate over hashmap and push the address in peerlist
+            for (_ , value) in cluster_state_lock.peers.iter(){
+                peer_list.push(value.clone());
+            }
+        }
+
+        //iterate over the peer list 
+        for peer in &peer_list{
+        
+        //extract address and port from peer string
+        let peer_port = get_port_from_address(peer);
+        let peer_address = get_ip_from_address(peer);
+    
+        //used unwrap ( future me problem )
+        let msg_bytes = msg.write_to_bytes().unwrap(); 
+   
+        //contruct the message request 
+        let message= RaftMessageRequest {
+            message: msg_bytes,
+        };
+        
+        let client_response = send_raft_message(peer_address, peer_port, message).await;
+        match client_response {
+            Ok(_) => {
+               eprintln!("Message sent to peer {}", peer_address);  
+               continue  
+            }
+            Err(e) => {
+                eprintln!("Failed to send raft message: {}", e);
+               return false
+            }
+        }
+        }  
+        
+        true  
+}
+
+
 
 pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>>, db: &rocksdb::DB) {
     //check if the entry is data entry
@@ -175,7 +220,6 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
 }
 
 
-
 //function to create the raft node
 pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
     //question : do we need to create raft node every time ? or have to create it once and check if already present
@@ -208,44 +252,9 @@ async fn process_ready_state(
     if !ready.messages().is_empty() {
         
         for msg in ready.take_messages() {
-        
-        let mut peer_list: Vec<String> = vec![];         
-        
-        if let Some(ref value) = cluster_state{
-            let cluster_state_lock = value.read().unwrap(); //returns hashmap 
-            //iterate over hashmap and push the address in peerlist
-            for (key, value) in cluster_state_lock.peers.iter(){
-                peer_list.push(value.clone());
-            }
-        }
 
-        //iterate over the peer list 
-        for peer in &peer_list{
-        
-        //extract address and port from peer string
-        let peer_port = get_port_from_address(peer);
-        let peer_address = get_ip_from_address(peer);
-    
-    //used unwrap ( future me problem )
-       let msg_bytes = msg.write_to_bytes().unwrap(); 
-   
-        //contruct the message request 
-        let message= RaftMessageRequest {
-            message: msg_bytes,
-        };
-        
-        let client_response = send_raft_message(peer_address, peer_port, message).await;
-        match client_response {
-            Ok(_) => {
-               eprintln!("Message sent to peer {}", peer_address);   
-               continue; 
-            }
-            Err(e) => {
-                eprintln!("Failed to send raft message: {}", e);
-            }
-        }
-        }  
-            
+        let value = send_messages(msg, cluster_state.clone());
+
         }
     }
 
@@ -338,16 +347,59 @@ async fn process_ready_state(
     }
 
     for msg in ready.take_persisted_messages() {
-        // Handle persisted messages (e.g., send to other nodes)
         
+        // Handle persisted messages (e.g., send to other nodes) 
+        let mut peer_list: Vec<String> = vec![];         
+        
+        if let Some(ref value) = cluster_state{
+            let cluster_state_lock = value.read().unwrap(); //returns hashmap 
+            //iterate over hashmap and push the address in peerlist
+            for (_ , value) in cluster_state_lock.peers.iter(){
+                peer_list.push(value.clone());
+            }
+        }
+
+        //iterate over the peer list 
+        for peer in &peer_list{
+        
+        //extract address and port from peer string
+        let peer_port = get_port_from_address(peer);
+        let peer_address = get_ip_from_address(peer);
+    
+        //used unwrap ( future me problem )
+        let msg_bytes = msg.write_to_bytes().unwrap(); 
+   
+        //contruct the message request 
+        let message= RaftMessageRequest {
+            message: msg_bytes,
+        };
+        
+        let client_response = send_raft_message(peer_address, peer_port, message).await;
+        match client_response {
+            Ok(_) => {
+               eprintln!("Message sent to peer {}", peer_address);   
+               continue; 
+            }
+            Err(e) => {
+                eprintln!("Failed to send raft message: {}", e);
+            }
+        }
+            
+        }
         
     }
 
     let mut light_rd = node.advance(ready);
 
     // Send any additional messages to peers (transport layer — not yet implemented)
-    for _msg in light_rd.take_messages() {
+    for msg in light_rd.take_messages() {
         // TODO: send to peer nodes via transport
+    let send_msg_response = send_messages(msg, cluster_state.clone()).await;
+    
+    if !send_msg_response{
+       eprintln!("failed to send message"); 
+       continue;  
+    }
     }
 
     // Apply any additional committed entries from the light ready
@@ -468,6 +520,8 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                     eprintln!("Error stepping raft node: {:?}", e);
                 }
             },
+
+            //function for conf change request 
             Ok(Some(Msg::ConfChange{confchange_msg})) => {
                 //handle the conf change request
                 let cc_id = confchange_msg.id;
