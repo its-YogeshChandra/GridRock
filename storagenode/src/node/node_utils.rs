@@ -284,7 +284,7 @@ async fn process_ready_state(
         //update the leader id in the cluster state 
         if let Some(value) = cluster_state.clone(){
             let mut state = value.write().unwrap();
-            state.leader_id = hs.get_term();
+            state.leader_id = node.raft.leader_id;
         }
     }
 
@@ -589,7 +589,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
             }
 
             Err(_) => {
-             panic!("Channel disconnected");   // Timeout occurred, drive the Raft node
+             node.tick();
             }
         }
 

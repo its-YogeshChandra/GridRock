@@ -43,37 +43,37 @@ impl NodeComm for NodeCommServer {
  }
 
 
- //send the proosal, 
- //function will be called when the node forward the message 
- //function get called in the codition , when calling node is node the leader  
+  //send the proposal, 
+  //function will be called when a follower forwards the message to the leader
+  //the follower sends the already-serialized RaftProposal bytes — just pass them through
   async fn forward_proposal(&self , request: Request<ForwardProposalRequest> ) -> Result<Response<ForwardProposalResponse>, Status> {
   
         let request_val = request.into_inner();
-        
-        //deserealize the request
-        let main_data = CreateRequest::decode(request_val.proposal_data.as_slice()).unwrap(); 
+        let proposal_data = request_val.proposal_data;
 
-        let unique_id = main_data.unique_id.clone();
+        // Decode the RaftProposal to determine operation type (the bytes are already a valid RaftProposal)
+        let raft_proposal = RaftProposal::decode(proposal_data.as_slice())
+            .map_err(|e| Status::internal(format!("failed to decode forwarded proposal: {}", e)))?;
+
+        let operation_type = match &raft_proposal.operation {
+            Some(Operation::Create(_)) => OperationType::Create,
+            Some(Operation::Update(_)) => OperationType::Update,
+            Some(Operation::Delete(_)) => OperationType::Delete,
+            Some(Operation::Get(_)) => OperationType::Get,
+            None => return Err(Status::internal("forwarded proposal has no operation")),
+        };
 
         //use the tokio oneshot to create 
         let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
         
-        //forge the propose msg for raft 
-        let id = COUNTER.fetch_add(1, Ordering::SeqCst); 
+        // Use the original proposal_id from the forwarded proposal
+        let id = raft_proposal.proposal_id;
 
-        let raft_proposal = RaftProposal{
-           proposal_id : id, 
-           operation:Some(Operation::Create(main_data))
-        };
-
-        let mut data_buffer = Vec::new();
-        raft_proposal.encode(&mut data_buffer).map_err(|e| Status::internal(format!("server error: {}", e)))?;
-        
         let propose_msg_data: ProposeMessage = ProposeMessage{
-            id : id,
-             data : data_buffer,
-             operation_type : OperationType::Create,
-             response_tx: tx 
+            id,
+            data: proposal_data, // pass the raw bytes through — already a valid RaftProposal
+            operation_type,
+            response_tx: tx 
         };
 
         self.tx.send(Msg::Propose { proposemsg: propose_msg_data }).await.map_err(|e| Status::internal(e.to_string()))?;
@@ -83,7 +83,7 @@ impl NodeComm for NodeCommServer {
             Ok(_) => {
               let response_val = ForwardProposalResponse{
                success: true, 
-               message: format!("value with key '{}' successfully created", unique_id)
+               message: "proposal forwarded and committed successfully".to_string()
               };
                                 
                 Ok(Response::new(response_val))
