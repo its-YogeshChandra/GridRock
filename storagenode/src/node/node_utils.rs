@@ -395,36 +395,41 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
             Ok(Some(Msg::Propose { proposemsg })) => {
                 //check if the node is leader or not
                 let is_leader = node.raft.state == StateRole::Leader;
+
                 if !is_leader {
 
                     //call the forward proposal function to send request to client
-                    let leader_id = node.raft.leader_id;    
+                    let leader_id = node.raft.leader_id; 
 
-                    let cluster_state = cluster_state.read().unwrap();
-                    let is_leader_available = cluster_state.peers.contains_key(&leader_id);
-                    
-                    if is_leader_available{
-                        let leader_address_string = cluster_state.peers.get(&leader_id).unwrap();
 
-                        //get address and port from the string 
-                        let leader_port = get_port_from_address(leader_address_string);
-                        let leader_address = get_ip_from_address(leader_address_string);
+                    // Extract leader address under a short-lived lock, then drop it before .await
+                    let leader_data = {
+                        let cluster_state = cluster_state.read().unwrap();
+                        cluster_state.peers.get(&leader_id).cloned()
+                    };
 
-                        
-                        let client_response = forward_proposal(leader_address, leader_port, proposemsg.data, node.raft.id).await;
-                        match client_response{
-                            Ok(response) => {
-                                let grpc_response = RaftProcessedResponse { id: None, success: response.success, data: None};
-                                
-                                proposemsg.response_tx.send(Ok(grpc_response));
-                            }
-                            Err(error) => {
-                                let grpc_response = RaftProcessedResponse { id: None, success: false, data: None};
-                                let _ = proposemsg.response_tx.send(Err(ClientGrpcRequestProcessingError::RequestForwardingFailed)).unwrap();
-                            }
+                    let Some(leader_data) = leader_data else {
+                        let send_error = proposemsg.response_tx.send(Err(ClientGrpcRequestProcessingError::LeaderNotFound));
+                        if send_error.is_err() {
+                            panic!("error sending error back to grpc handler");
                         }
-                        
-                    } 
+                        continue;
+                    };
+
+                    //get address and port from the string
+                    let leader_port = get_port_from_address(&leader_data);
+                    let leader_address = get_ip_from_address(&leader_data);
+
+                    let client_response = forward_proposal(leader_address, leader_port, proposemsg.data, node.raft.id).await;
+                    match client_response {
+                        Ok(response) => {
+                            let grpc_response = RaftProcessedResponse { id: None, success: response.success, data: None };
+                            let _ = proposemsg.response_tx.send(Ok(grpc_response));
+                        }
+                        Err(_error) => {
+                            let _ = proposemsg.response_tx.send(Err(ClientGrpcRequestProcessingError::RequestForwardingFailed));
+                        }
+                    }
 
                     continue;
                 }

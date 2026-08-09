@@ -8,7 +8,8 @@ pub enum ClientGrpcRequestProcessingError{
    NotLeader,
    GetRequestNotSupported,
    DbResponseFailed,
-   RequestForwardingFailed 
+   RequestForwardingFailed, 
+   LeaderNotFound
 }
 
 
@@ -20,6 +21,7 @@ impl fmt::Display for ClientGrpcRequestProcessingError {
             ClientGrpcRequestProcessingError::GetRequestNotSupported => write!(f, "the get request is not supported "),
             ClientGrpcRequestProcessingError::DbResponseFailed => write!(f, "the db response failed"),
             ClientGrpcRequestProcessingError::RequestForwardingFailed => write!(f, "the request forwarding to the leader failed"),
+            ClientGrpcRequestProcessingError::LeaderNotFound => write!(f, "the leader is not available"),
     }
 }
 }
