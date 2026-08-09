@@ -99,15 +99,11 @@ let state = self.cluster_state.read().unwrap();
 //create vector of peer info by iterating through hashmap from state cluster 
 let mut peers = Vec::new();
 
-for values in state.peers.iter().enumerate(){
-   let peer_info = PeerInfo {
-    node_id : values.0 as u64,
-    address : values.1.1.to_string(),
-   };
-   peers.push(peer_info);
+for (node_id, addr) in state.peers.iter() {
+    peers.push(PeerInfo { node_id: *node_id, address: addr.clone() });
 }
 
- let response = GetClusterInfoResponse {
+let response = GetClusterInfoResponse {
     leader_id : state.leader_id,
     peers : peers
  };

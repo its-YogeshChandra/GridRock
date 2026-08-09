@@ -66,6 +66,14 @@ pub struct ConfChangeMessage{
     pub response_tx: oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>,
 }
 
+/// Tracks a pending linearizable read waiting for ReadState confirmation from raft.
+pub struct PendingRead {
+    /// The serialized RaftProposal bytes (contains the Get operation + key)
+    pub data: Vec<u8>,
+    /// Channel to send the read result back to the gRPC handler
+    pub response_tx: oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>,
+}
+
 
 
 pub enum Msg {
@@ -85,6 +93,15 @@ pub fn get_port_from_address(address: &str) -> u16{
 pub fn get_ip_from_address(address: &str) -> Ipv6Addr{
     let ip = address.split(":").next().unwrap();
     ip.parse::<Ipv6Addr>().unwrap()
+}
+
+//helper function to get the ipv6 address and port from the address string
+fn parse_address(address: &str) -> (Ipv6Addr, u16) {
+    // Expected format: "[::1]:50051"
+    let bracket_end = address.rfind(']').expect("expected bracket in address");
+    let ip_str = &address[1..bracket_end]; // strip [ ]
+    let port_str = &address[bracket_end+2..]; // skip ]:
+    (ip_str.parse().unwrap(), port_str.parse().unwrap())
 }
 
 //helper function to send message 
@@ -110,8 +127,7 @@ pub async fn send_messages(msg: eraftpb::Message, cluster_state: Option<Arc<RwLo
         
         
     //extract address and port from peer string
-    let receiver_port = get_port_from_address(&receiver_address_string);
-    let receiver_address = get_ip_from_address(&receiver_address_string);
+    let (receiver_address, receiver_port) = parse_address(&receiver_address_string);
     
     //used unwrap ( future me problem )
     let msg_bytes = msg.write_to_bytes().unwrap(); 
@@ -227,7 +243,7 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
 pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
     //question : do we need to create raft node every time ? or have to create it once and check if already present
 
-    let mut config = Config {
+    let config = Config {
         id,
         election_tick: 10,
         heartbeat_tick: 1,
@@ -244,6 +260,7 @@ async fn process_ready_state(
     node: &mut RawNode<MemStorage>,
     cbs: &mut HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>>,
     cluster_state: Option<Arc<RwLock<ClusterState>>>,
+    pending_reads: &mut HashMap<Vec<u8>, PendingRead>,
 ) {
     if !node.has_ready() {
         return;
@@ -253,13 +270,11 @@ async fn process_ready_state(
 
     // Process messages
     if !ready.messages().is_empty() {
-        
         for msg in ready.take_messages() {
-
-        let send_response = send_messages(msg, cluster_state.clone()).await;
-        if !send_response {
-            eprintln!("Failed to send raft message");
-            return; 
+            let send_response = send_messages(msg, cluster_state.clone()).await;
+            if !send_response {
+                panic!("Failed to send raft message");
+            }
         }
     }
 
@@ -279,6 +294,56 @@ async fn process_ready_state(
     // Update hard state if present
     if let Some(hs) = ready.hs() {
         node.mut_store().wl().set_hardstate(hs.clone());
+        //update the leader id in the cluster state 
+        if let Some(value) = cluster_state.clone(){
+            let mut state = value.write().unwrap();
+            state.leader_id = hs.get_term();
+        }
+    }
+
+    // Process read states — these are linearizable read confirmations from raft
+    // Each ReadState means raft has confirmed the leader still holds leadership,
+    // so it's safe to read from the local DB at this point
+    for rs in ready.read_states() {
+        if let Some(pending) = pending_reads.remove(&rs.request_ctx) {
+            // Decode the RaftProposal to extract the Get key
+            let result = match RaftProposal::decode(pending.data.as_ref()) {
+                Ok(proposal) => match proposal.operation {
+                    Some(Operation::Get(ref get_req)) => {
+                        let db = match get_db_connection() {
+                            Ok(db) => db,
+                            Err(e) => {
+                                eprintln!("Failed to open DB for read: {:?}", e);
+                                let _ = pending.response_tx.send(Err(
+                                    ClientGrpcRequestProcessingError::DbResponseFailed,
+                                ));
+                                continue;
+                            }
+                        };
+                        match db_read(&db, &get_req.unique_id) {
+                            Ok(record) => Ok(RaftProcessedResponse {
+                                id: Some(get_req.unique_id.clone()),
+                                success: true,
+                                data: Some(record),
+                            }),
+                            Err(e) => {
+                                eprintln!("DB read failed: {}", e);
+                                Err(ClientGrpcRequestProcessingError::DbResponseFailed)
+                            }
+                        }
+                    }
+                    _ => {
+                        eprintln!("ReadState contained non-Get operation");
+                        Err(ClientGrpcRequestProcessingError::NodeUnaware)
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to decode RaftProposal for read: {:?}", e);
+                    Err(ClientGrpcRequestProcessingError::NodeUnaware)
+                }
+            };
+            let _ = pending.response_tx.send(result);
+        }
     }
 
     // Process committed entries
@@ -301,6 +366,7 @@ async fn process_ready_state(
                     // Decode, apply to RocksDB, and send response via the helper
                     append_committed_entry(entry, cbs, &db);
                 }
+
                 raft::eraftpb::EntryType::EntryConfChange => {
                     // Deserialize the ConfChange from committed entry data
                     let mut conf_change_data = eraftpb::ConfChange::default();
@@ -340,6 +406,7 @@ async fn process_ready_state(
                         }));
                     }
                 }
+               
                 raft::eraftpb::EntryType::EntryConfChangeV2 => {
                     // Handle configuration change v2 entry
                     eprintln!(
@@ -351,47 +418,12 @@ async fn process_ready_state(
         }
     }
 
+    //for sending persistent messages 
     for msg in ready.take_persisted_messages() {
-        
-        // Handle persisted messages (e.g., send to other nodes) 
-        let mut peer_list: Vec<String> = vec![];         
-        
-        if let Some(ref value) = cluster_state{
-            let cluster_state_lock = value.read().unwrap(); //returns hashmap 
-            //iterate over hashmap and push the address in peerlist
-            for (_ , value) in cluster_state_lock.peers.iter(){
-                peer_list.push(value.clone());
-            }
-        }
-
-        //iterate over the peer list 
-        for peer in &peer_list{
-        
-        //extract address and port from peer string
-        let peer_port = get_port_from_address(peer);
-        let peer_address = get_ip_from_address(peer);
-    
-        //used unwrap ( future me problem )
-        let msg_bytes = msg.write_to_bytes().unwrap(); 
-   
-        //contruct the message request 
-        let message= RaftMessageRequest {
-            message: msg_bytes,
-        };
-        
-        let client_response = send_raft_message(peer_address, peer_port, message).await;
-        match client_response {
-            Ok(_) => {
-               eprintln!("Message sent to peer {}", peer_address);   
-               continue; 
-            }
-            Err(e) => {
-                eprintln!("Failed to send raft message: {}", e);
-            }
-        }
-            
-        }
-        
+        let send_msg_response = send_messages(msg, cluster_state.clone()).await; 
+        if !send_msg_response{
+            panic!("failed to send raft message")
+        }   
     }
 
     let mut light_rd = node.advance(ready);
@@ -399,12 +431,12 @@ async fn process_ready_state(
     // Send any additional messages to peers (transport layer — not yet implemented)
     for msg in light_rd.take_messages() {
         // TODO: send to peer nodes via transport
-    let send_msg_response = send_messages(msg, cluster_state.clone()).await;
+        let send_msg_response = send_messages(msg, cluster_state.clone()).await;
     
-    if !send_msg_response{
-       eprintln!("failed to send message"); 
-       continue;  
-    }
+        if !send_msg_response{
+            //send the response back to the grpc handler
+            panic!("failed to send raft message")
+        }
     }
 
     // Apply any additional committed entries from the light ready
@@ -445,6 +477,10 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
     //contains value as the response tx 
     let mut cbs: HashMap<u64, oneshot::Sender<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>> = HashMap::new();
 
+    //pending reads storage for linearizable read requests
+    //keyed by the read context (proposal id as bytes), value is the PendingRead struct
+    let mut pending_reads: HashMap<Vec<u8>, PendingRead> = HashMap::new();
+
     loop {
         let now = Instant::now();
 
@@ -474,8 +510,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                     };
 
                     //get address and port from the string
-                    let leader_port = get_port_from_address(&leader_data);
-                    let leader_address = get_ip_from_address(&leader_data);
+                    let (leader_address, leader_port) = parse_address(&leader_data);
 
                     let client_response = forward_proposal(leader_address, leader_port, proposemsg.data, node.raft.id).await;
                     match client_response {
@@ -493,9 +528,21 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
 
                 //check for the operation if the operation is get request
                 if proposemsg.operation_type == OperationType::Get {
-                    // If it's a Get operation, send an error back to the client for now
-                    //later we can implement seperate function to handle get request
-                    let _ = proposemsg.response_tx.send(Err(ClientGrpcRequestProcessingError::GetRequestNotSupported));
+                    // Linearizable read: use read_index to confirm leader lease,
+                    // then read from local DB once raft confirms via ReadState
+                    let rctx = proposemsg.id.to_be_bytes().to_vec();
+                    pending_reads.insert(
+                        rctx.clone(),
+                        PendingRead {
+                            data: proposemsg.data,
+                            response_tx: proposemsg.response_tx,
+                        },
+                    );
+                    node.read_index(rctx);
+
+                    if node.has_ready() {
+                        process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone()), &mut pending_reads).await;
+                    }
                     continue;
                 }
 
@@ -511,14 +558,14 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
 
                 //check if raft node has data to be processed
                 if node.has_ready() {
-                    process_ready_state(&mut node, &mut cbs, None).await;
+                    process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone()), &mut pending_reads).await;
                 }
             }
 
             Ok(Some(Msg::Raft(msg))) => match node.step(msg) {
                 Ok(_) => {
                     if node.has_ready() {
-                        process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone())).await;
+                        process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone()), &mut pending_reads).await;
                     }
                 }
                 Err(e) => {
@@ -537,7 +584,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                 match node.propose_conf_change(cc_id.to_be_bytes().to_vec(), confchange_msg.cc) {
                     Ok(_) => {
                         if node.has_ready() {
-                            process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone())).await;
+                            process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone()), &mut pending_reads).await;
                         }
                     }
                     Err(e) => {
@@ -569,7 +616,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
 
             //check if raft node has data to be processed
             if node.has_ready() {
-                process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone())).await;
+                process_ready_state(&mut node, &mut cbs, Some(cluster_state.clone()), &mut pending_reads).await;
             }
         } else {
             remaining_timeout -= elapsed;
