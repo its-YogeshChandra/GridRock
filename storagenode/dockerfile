@@ -1,52 +1,45 @@
 #docker file for the storage node
-#file will create the build in three stage 
-    #build stage -- with dependency caching  
-    #final image stage
+#two-stage build: compile in builder, run in slim runtime
 
 #-------------------------------------------------
 #stage 1 : builder stage 
 
-#use the base image as builder 
 FROM rust:1.91.1-bookworm AS builder
 
-#create the working dir
+#install protobuf compiler (needed by build.rs to compile .proto files)
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-#create dummy/ stub source file 
+#create dummy source for dependency caching 
 RUN mkdir -p ./src && echo "fn main() {}" > ./src/main.rs
 
-#copy the cargo toml and lock file 
+#copy manifest files first for layer caching
 COPY Cargo.toml Cargo.lock ./   
+COPY build.rs ./
 
-#run build command -- build everything at this stage 
+#build dependencies only (dummy main.rs)
 RUN cargo build --release
 
-#remove the dummy/ stub source file 
+#remove dummy source and copy real source
 RUN rm -rf ./src 
-
-#create new source file so cargo knows they are newer files 
-RUN touch -a ./src/main.rs
 COPY src/ ./src/
-COPY build.rs ./
+
+#touch so cargo sees the new files as newer than the cached build
+RUN touch ./src/main.rs
 
 #build the real storage node binary 
 RUN cargo build --release  
 
-#install dependencies which are needed to be persist 
-
-
 #----------------------------------------
 # stage 2: Runtime 
-#base image 
 FROM debian:bookworm-slim AS runtime
 
-#install build runtime dependencies 
+#install only runtime dependencies
 RUN apt-get update && apt-get install -y \
     curl \
-    protobuf-compiler \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-    #add more if any 
     
 WORKDIR /app
 
@@ -55,26 +48,10 @@ COPY --from=builder /app/target/release/storagenode ./storagenode
 
 #create non-root user and group 
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser 
-
-#copy the config folder from the host to the container 
-COPY --from=builder /app/configs ./configs 
-
-#copy the cargo toml and lock file 
-COPY Cargo.toml Cargo.lock ./ 
-
-# rebuild dependencies only if those files changed
-RUN cargo build --release --no-default-features 
-
-#create non root user for security 
-RUN useradd --create-home --shell /bin/bash appuser
 RUN chown -R appuser:appgroup /app
 
-#using user is app user
-#guess it blocks root access to the container 
 USER appuser 
 
-#expose the port 
 EXPOSE 50051
 
 CMD ["./storagenode"]
-

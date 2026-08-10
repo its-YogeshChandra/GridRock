@@ -6,21 +6,26 @@ use crate::node_comm::{
     GetClusterInfoRequest, GetClusterInfoResponse,
     JoinClusterRequest, JoinClusterResponse,
 };
-use std::net::Ipv6Addr;
 
-/// Helper to build a gRPC endpoint URL from an IPv6 address and port.
-fn build_endpoint(addr: &Ipv6Addr, port: u16) -> String {
-    format!("http://[{}]:{}", addr, port)
+/// Helper to build a gRPC endpoint URL from a host string and port.
+/// Accepts hostnames ("storagenode1"), IPv4 ("172.17.0.2"), or IPv6 ("::1").
+fn build_endpoint(host: &str, port: u16) -> String {
+    // If the host looks like an IPv6 address (contains ':'), wrap in brackets
+    if host.contains(':') {
+        format!("http://[{}]:{}", host, port)
+    } else {
+        format!("http://{}:{}", host, port)
+    }
 }
 
 /// Sends a serialized raft message (AppendEntries, Vote, Heartbeat, etc.) to a peer node.
 /// The `message` field in RaftMessageRequest should contain the protobuf-serialized eraftpb::Message bytes.
 pub async fn send_raft_message(
-    peer_address: Ipv6Addr,
+    peer_host: &str,
     port: u16,
     message: RaftMessageRequest,
 ) -> Result<RaftMessageResponse, Box<dyn std::error::Error>> {
-    let endpoint = build_endpoint(&peer_address, port);
+    let endpoint = build_endpoint(peer_host, port);
     let mut client = NodeCommClient::connect(endpoint).await?;
 
     let response = client.send_raft_message(message).await?;
@@ -31,12 +36,12 @@ pub async fn send_raft_message(
 /// Called when a follower receives a client write request and needs the leader to propose it.
 /// `proposal_data` should be the prost-encoded RaftProposal bytes.
 pub async fn forward_proposal(
-    peer_address: Ipv6Addr,
+    peer_host: &str,
     port: u16,
     proposal_data: Vec<u8>,
     sender_node_id: u64,
 ) -> Result<ForwardProposalResponse, Box<dyn std::error::Error>> {
-    let endpoint = build_endpoint(&peer_address, port);
+    let endpoint = build_endpoint(peer_host, port);
     let mut client = NodeCommClient::connect(endpoint).await?;
 
     let request = ForwardProposalRequest {
@@ -51,10 +56,10 @@ pub async fn forward_proposal(
 /// Queries the current cluster membership from a peer node.
 /// Can be called from any node to any other node.
 pub async fn get_cluster_info(
-    peer_address: Ipv6Addr,
+    peer_host: &str,
     port: u16,
 ) -> Result<GetClusterInfoResponse, Box<dyn std::error::Error>> {
-    let endpoint = build_endpoint(&peer_address, port);
+    let endpoint = build_endpoint(peer_host, port);
     let mut client = NodeCommClient::connect(endpoint).await?;
 
     let request = GetClusterInfoRequest {};
@@ -67,12 +72,12 @@ pub async fn get_cluster_info(
 /// Called by a new node that wants to join the raft cluster.
 /// Returns the current peer list on success.
 pub async fn join_cluster(
-    peer_address: Ipv6Addr,
+    peer_host: &str,
     port: u16,
     node_id: u64,
     self_address: String,
 ) -> Result<JoinClusterResponse, Box<dyn std::error::Error>> {
-    let endpoint = build_endpoint(&peer_address, port);
+    let endpoint = build_endpoint(peer_host, port);
     let mut client = NodeCommClient::connect(endpoint).await?;
 
     let request = JoinClusterRequest {

@@ -5,7 +5,7 @@ use prost::Message;
 use raft::{Config, StateRole, raw_node::RawNode, storage::MemStorage};
 use slog::{o};
 use std::collections::HashMap;
-use std::net::Ipv6Addr;
+
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc::Receiver, oneshot};
 use tokio::time::timeout;
@@ -82,13 +82,24 @@ pub enum Msg {
     // You can add more message types here if needed
 }
 
-//helper function to get the ipv6 address and port from the address string
-fn parse_address(address: &str) -> (Ipv6Addr, u16) {
-    // Expected format: "[::1]:50051"
-    let bracket_end = address.rfind(']').expect("expected bracket in address");
-    let ip_str = &address[1..bracket_end]; // strip [ ]
-    let port_str = &address[bracket_end+2..]; // skip ]:
-    (ip_str.parse().unwrap(), port_str.parse().unwrap())
+/// Parses an address string into (host, port).
+/// Supports:
+///   - "[::1]:50051"         -> ("::1", 50051)
+///   - "storagenode1:50051"  -> ("storagenode1", 50051)
+///   - "172.17.0.2:50051"    -> ("172.17.0.2", 50051)
+fn parse_address(address: &str) -> (String, u16) {
+    if let Some(bracket_end) = address.rfind(']') {
+        // IPv6 bracket format: [::1]:50051
+        let host = address[1..bracket_end].to_string();
+        let port_str = &address[bracket_end + 2..]; // skip ]:
+        (host, port_str.parse().expect("invalid port in address"))
+    } else {
+        // hostname:port or ipv4:port — split on the last ':'
+        let colon_pos = address.rfind(':').expect("expected host:port format");
+        let host = address[..colon_pos].to_string();
+        let port_str = &address[colon_pos + 1..];
+        (host, port_str.parse().expect("invalid port in address"))
+    }
 }
 
 //helper function to send message 
@@ -124,7 +135,7 @@ pub async fn send_messages(msg: eraftpb::Message, cluster_state: Option<Arc<RwLo
         message: msg_bytes,
     };
         
-    let client_response = send_raft_message(receiver_address, receiver_port, message).await;
+    let client_response = send_raft_message(&receiver_address, receiver_port, message).await;
     match client_response {
         Ok(_) => {
             eprintln!("Message sent to peer {}", receiver_address);  
@@ -499,7 +510,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                     //get address and port from the string
                     let (leader_address, leader_port) = parse_address(&leader_data);
 
-                    let client_response = forward_proposal(leader_address, leader_port, proposemsg.data, node.raft.id).await;
+                    let client_response = forward_proposal(&leader_address, leader_port, proposemsg.data, node.raft.id).await;
                     match client_response {
                         Ok(response) => {
                             let grpc_response = RaftProcessedResponse { id: None, success: response.success, data: None };

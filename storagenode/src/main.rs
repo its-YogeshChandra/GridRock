@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cluster_for_node_comm_service = cluster_state.clone();
     let cluster_for_processor_node = cluster_state.clone();
   
-    let addr = format!("[::1]:{}", config.port).parse()?;
+    let addr = format!("0.0.0.0:{}", config.port).parse()?;
     println!("Server is listening on port {}", config.port);
 
     // Create the tokio mpsc channel for sending messages to the raft processor
