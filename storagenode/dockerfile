@@ -6,17 +6,20 @@
 
 FROM rust:1.91.1-bookworm AS builder
 
-#install protobuf compiler (needed by build.rs to compile .proto files)
-RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
+#install protobuf compiler and libclang (needed by build.rs and rocksdb's bindgen)
+RUN apt-get update && apt-get install -y protobuf-compiler clang libclang-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 #create dummy source for dependency caching 
-RUN mkdir -p ./src && echo "fn main() {}" > ./src/main.rs
+RUN mkdir -p ./src && echo "fn main() {}" > ./src/main.rs && echo "fn main() {}" > ./src/client.rs
 
 #copy manifest files first for layer caching
 COPY Cargo.toml Cargo.lock ./   
 COPY build.rs ./
+
+#copy proto files (needed by build.rs during dependency caching step)
+COPY src/proto/ ./src/proto/
 
 #build dependencies only (dummy main.rs)
 RUN cargo build --release
