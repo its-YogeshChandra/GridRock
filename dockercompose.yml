@@ -1,0 +1,40 @@
+#compose file for the storage node 
+
+services:
+  storagenode1:
+    build:
+      context: ./storagenode
+      dockerfile: dockerfile
+    container_name: storagenode
+    ports:
+      - "50051:50051"
+    environment:
+      - NODE_ID=1
+      - NODE_PORT=50051
+      - NODE_PEERS=1:[IP_ADDRESS]
+      
+      
+  storagenode2:
+    build:
+      context: ./storagenode
+      dockerfile: dockerfile
+    container_name: storagenode2
+    ports:
+      - "50052:50051"
+    environment:
+      - NODE_ID=2
+      - NODE_PORT=50052
+      - NODE_PEERS=2:[IP_ADDRESS]
+
+
+  storagenode3:
+    build:
+      context: ./storagenode
+      dockerfile: dockerfile
+    container_name: storagenode3
+    ports:
+      - "50053:50051"
+    environment:
+      - NODE_ID=3
+      - NODE_PORT=50053
+      - NODE_PEERS=3:[IP_ADDRESS]
