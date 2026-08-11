@@ -8,11 +8,11 @@ use protobuf::Message as ProtobufMessage;
 use crate::node::node_utils::{Msg, ProposeMessage, OperationType, ConfChangeMessage};
 use std::sync::{Arc, RwLock};
 use crate::ClusterState;
-use crate::server::{RaftProcessedResponse, COUNTER};
+use crate::server::{RaftProcessedResponse, next_proposal_id};
 use crate::errors::request_errors::ClientGrpcRequestProcessingError;
 use crate::storage_proto::raft_proposal::Operation;
 use crate::storage_proto::{RaftProposal};
-use std::sync::atomic::{ Ordering};
+
 
 pub struct NodeCommServer{
     pub tx: Sender<crate::node::node_utils::Msg>,
@@ -130,7 +130,7 @@ let response = GetClusterInfoResponse {
  // create oneshot channel to wait for raft commit result
  let (tx, rx) = oneshot::channel::<Result<RaftProcessedResponse, ClientGrpcRequestProcessingError>>();
 
- let id = COUNTER.fetch_add(1, Ordering::SeqCst); 
+ let id = next_proposal_id(); 
 
  // forge the conf change message 
  let cc = raft::eraftpb::ConfChange{

@@ -89,6 +89,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read all config from stdin
     let config = read_node_config();
 
+    // Initialize the node-scoped proposal ID generator
+    server::init_node_id(config.node_id);
+
     // Build cluster state (leader_id starts at 0 — updated by processor_node after election)
     let cluster_state = Arc::new(RwLock::new(ClusterState {
         leader_id: 0,

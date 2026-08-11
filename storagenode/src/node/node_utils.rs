@@ -156,18 +156,20 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
     let proposal = match RaftProposal::decode(entry.data.as_ref()) {
                         Ok(p) => p,
                         Err(e) => {
-                            eprintln!("Failed to decode RaftProposal: {:?}", e);
+                            eprintln!("[Raft] Failed to decode RaftProposal: {:?}", e);
                             return;
                         }
                     };
 
                     let proposal_id = proposal.proposal_id;
+                    eprintln!("[Raft] Committing entry | proposal_id={:#018x}", proposal_id);
 
                     
                     // Apply the operation to the state machine (RocksDB)
                     // Build the response or error based on which operation it is
                     let result: Result<RaftProcessedResponse, ClientGrpcRequestProcessingError> = match proposal.operation {
                         Some(Operation::Create(ref create_req)) => {
+                            eprintln!("[Raft] DB CREATE | key={}", create_req.unique_id);
                             match db_create(&db, create_req) {
                                 Ok(created_id) => Ok(RaftProcessedResponse {
                                     id: Some(created_id.to_string()),
@@ -175,13 +177,14 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
                                     data: Some(create_req.clone()),
                                 }),
                                 Err(e) => {
-                                    eprintln!("DB create failed: {}", e);
+                                    eprintln!("[Raft] DB create failed: {}", e);
                                     Err(ClientGrpcRequestProcessingError::DbResponseFailed)
                                 }
                             }
                         }
 
                         Some(Operation::Update(ref update_req)) => {
+                            eprintln!("[Raft] DB UPDATE | key={}", update_req.unique_id);
                             match db_update(&db, &update_req.unique_id, update_req.balance) {
                                 Ok(updated_id) => Ok(RaftProcessedResponse {
                                     id: Some(updated_id.to_string()),
@@ -189,13 +192,14 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
                                     data: None,
                                 }),
                                 Err(e) => {
-                                    eprintln!("DB update failed: {}", e);
+                                    eprintln!("[Raft] DB update failed: {}", e);
                                     Err(ClientGrpcRequestProcessingError::DbResponseFailed)
                                 }
                             }
                         }
 
                         Some(Operation::Delete(ref del_req)) => {
+                            eprintln!("[Raft] DB DELETE | key={}", del_req.unique_id);
                             match db_delete(&db, &del_req.unique_id) {
                                 Ok(deleted_id) => Ok(RaftProcessedResponse {
                                     id: Some(deleted_id.to_string()),
@@ -203,13 +207,14 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
                                     data: None,
                                 }),
                                 Err(e) => {
-                                    eprintln!("DB delete failed: {}", e);
+                                    eprintln!("[Raft] DB delete failed: {}", e);
                                     Err(ClientGrpcRequestProcessingError::DbResponseFailed)
                                 }
                             }
                         }
 
                         Some(Operation::Get(ref get_req)) => {
+                            eprintln!("[Raft] DB GET (via commit) | key={}", get_req.unique_id);
                             match db_read(&db, &get_req.unique_id) {
                                 Ok(record) => Ok(RaftProcessedResponse {
                                     id: Some(get_req.unique_id.clone()),
@@ -217,14 +222,14 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
                                     data: Some(record),
                                 }),
                                 Err(e) => {
-                                    eprintln!("DB read failed: {}", e);
+                                    eprintln!("[Raft] DB read failed: {}", e);
                                     Err(ClientGrpcRequestProcessingError::DbResponseFailed)
                                 }
                             }
                         }
 
                         None => {
-                            eprintln!("No operation found in RaftProposal (id: {})", proposal_id);
+                            eprintln!("[Raft] No operation found in RaftProposal (id: {:#018x})", proposal_id);
                             Err(ClientGrpcRequestProcessingError::NodeUnaware)
                         }
                     };
@@ -232,7 +237,10 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
                     // Send the result back to the gRPC handler if this node is the leader
                     // (followers won't have an entry in cbs — they just applied to DB silently)
                     if let Some(sender) = cbs.remove(&proposal_id) {
+                        eprintln!("[Raft] Firing callback for proposal_id={:#018x}", proposal_id);
                         let _ = sender.send(result);
+                    } else {
+                        eprintln!("[Raft] No callback for proposal_id={:#018x} (follower apply)", proposal_id);
                     }
     
 }
@@ -347,6 +355,7 @@ async fn process_ready_state(
 
     // Process committed entries
     if !ready.committed_entries().is_empty() {
+        eprintln!("[Raft] process_ready_state: {} committed entries", ready.committed_entries().len());
         for entry in ready.take_committed_entries() {
             if entry.data.is_empty() {
                 continue;
@@ -493,8 +502,12 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
             Ok(Some(Msg::Propose { proposemsg })) => {
                 //check if the node is leader or not
                 let is_leader = node.raft.state == StateRole::Leader;
+                let role = if is_leader { "LEADER" } else { "FOLLOWER" };
+                eprintln!("[Raft] Propose received | role={} leader_id={} proposal_id={:#018x}",
+                    role, node.raft.leader_id, proposemsg.id);
 
                 if !is_leader && node.raft.leader_id == 0 {
+                    eprintln!("[Raft] No leader yet — re-queuing proposal");
                     let reque_response  = sender.send(Msg::Propose { proposemsg }).await;
                     if reque_response.is_err() {
                         panic!("failed to reque the request from grpc handler");
@@ -526,6 +539,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
 
                     //get address and port from the string
                     let (leader_address, leader_port) = parse_address(&leader_data);
+                    eprintln!("[Raft] Forwarding proposal to leader at {}:{}", leader_address, leader_port);
 
                     let client_response = forward_proposal(&leader_address, leader_port, proposemsg.data, node.raft.id).await;
                     match client_response {
@@ -568,6 +582,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                      proposemsg.response_tx,
                 );
 
+                eprintln!("[Raft] Proposing locally | proposal_id={:#018x}", proposemsg.id);
                 //propse the message to the raft node
                 node.propose(proposemsg.id.to_be_bytes().to_vec(), proposemsg.data)
                     .unwrap();
@@ -619,6 +634,8 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
 
             Err(_) => {
              node.tick();
+             eprintln!("[Raft] tick | role={:?} leader_id={} term={}",
+                node.raft.state, node.raft.leader_id, node.raft.term);
             }
         }
 
