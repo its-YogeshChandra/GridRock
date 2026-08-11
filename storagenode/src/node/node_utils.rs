@@ -11,6 +11,7 @@ use tokio::time::timeout;
 use crate::errors::request_errors::ClientGrpcRequestProcessingError;
 use crate::server::RaftProcessedResponse;
 use crate::db::{db_create, db_read, db_update, db_delete, get_db_connection};
+use crate::errors::rocksdb_error::DbError;
 use crate::storage_proto::RaftProposal;
 use crate::storage_proto::raft_proposal::Operation;
 use std::sync::{Arc, RwLock};
@@ -219,6 +220,11 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
                                     success: true,
                                     data: Some(record),
                                 }),
+                                Err(DbError::KeyNotFound(_)) => Ok(RaftProcessedResponse {
+                                    id: Some(get_req.unique_id.clone()),
+                                    success: false,
+                                    data: None,
+                                }),
                                 Err(e) => {
                                     eprintln!("[Raft] DB read failed: {}", e);
                                     Err(ClientGrpcRequestProcessingError::DbResponseFailed)
@@ -330,6 +336,11 @@ async fn process_ready_state(
                                 id: Some(get_req.unique_id.clone()),
                                 success: true,
                                 data: Some(record),
+                            }),
+                            Err(DbError::KeyNotFound(_)) => Ok(RaftProcessedResponse {
+                                id: Some(get_req.unique_id.clone()),
+                                success: false,
+                                data: None,
                             }),
                             Err(e) => {
                                 eprintln!("DB read failed: {}", e);
