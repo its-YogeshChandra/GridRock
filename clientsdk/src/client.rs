@@ -95,21 +95,24 @@ async fn run_lifecycle(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let urls:  [&str; 3] = [
-        "http://[::1]:50051",
-        "http://[::1]:50052",
-        "http://[::1]:50053",];
+        "http://127.0.0.1:50051",
+        "http://127.0.0.1:50052",
+        "http://127.0.0.1:50053",];
     
     //get the random url from the array 
     let random_url = get_random_value(&urls);
     
-    
+    println!("[Client] Connecting to {}...", random_url);
     let mut client = GridRockClient::connect(random_url).await?;
+    println!("[Client] Connected! Generating entity pool...");
     
     // Bulk test: 1000 DISTINCT entities, each with its own unique_id,
     // each pushed through a full create/get/update/get/delete cycle.
     let pool = utils::generate_entity_pool(1000);
+    println!("[Client] Generated {} entities. Starting lifecycle tests...", pool.len());
 
-    for entity in &pool {
+    for (i, entity) in pool.iter().enumerate() {
+        println!("[Client] Entity {}/{} id={}", i + 1, pool.len(), entity.unique_id);
         run_lifecycle(&mut client, entity).await?;
     }
 

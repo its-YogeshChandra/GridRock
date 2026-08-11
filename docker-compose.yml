@@ -9,7 +9,7 @@ services:
     volumes:
       - storagenode1_data:/app/gridrock_data
     ports:
-      - "50051:50051"
+      - "127.0.0.1:50051:50051"
     environment:
       - NODE_ID=1
       - NODE_PORT=50051
@@ -23,7 +23,7 @@ services:
     volumes:
       - storagenode2_data:/app/gridrock_data
     ports:
-      - "50052:50052"
+      - "127.0.0.1:50052:50052"
     environment:
       - NODE_ID=2
       - NODE_PORT=50052
@@ -37,7 +37,7 @@ services:
     volumes:
       - storagenode3_data:/app/gridrock_data
     ports:
-      - "50053:50053"
+      - "127.0.0.1:50053:50053"
     environment:
       - NODE_ID=3
       - NODE_PORT=50053

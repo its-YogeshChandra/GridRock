@@ -51,7 +51,7 @@ COPY --from=builder /app/target/release/storagenode ./storagenode
 
 #create non-root user and group 
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser 
-RUN chown -R appuser:appgroup /app
+RUN mkdir -p /app/gridrock_data && chown -R appuser:appgroup /app
 
 USER appuser 
 

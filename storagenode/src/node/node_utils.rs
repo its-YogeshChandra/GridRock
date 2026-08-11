@@ -5,8 +5,6 @@ use prost::Message;
 use raft::{Config, StateRole, raw_node::RawNode, storage::MemStorage};
 use slog::{Drain, o};
 use std::collections::HashMap;
-
-use std::ops::ControlFlow::Continue;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc::Receiver, oneshot};
 use tokio::time::timeout;
