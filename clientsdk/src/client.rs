@@ -2,7 +2,9 @@ pub mod storage_proto {
     tonic::include_proto!("storage_system");
 }
 
-use crate::TestEntity;
+#[path = "utils.rs"]
+mod utils;
+use utils::TestEntity;
 use crate::storage_proto::grid_rock_client::GridRockClient;
 use tonic::transport::Channel;
 
@@ -88,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Bulk test: 1000 DISTINCT entities, each with its own unique_id,
     // each pushed through a full create/get/update/get/delete cycle.
-    let pool = crate::utils::generate_entity_pool(1000);
+    let pool = utils::generate_entity_pool(1000);
 
     for entity in &pool {
         run_lifecycle(&mut client, entity).await?;
