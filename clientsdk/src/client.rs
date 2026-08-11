@@ -7,11 +7,19 @@ mod utils;
 use utils::TestEntity;
 use crate::storage_proto::grid_rock_client::GridRockClient;
 use tonic::transport::Channel;
+use rand::RngExt;
 
 // -----------------------------------------
 // CRUD functions — take an existing client + entity,
 // so the same unique_id flows through Create -> Update -> Get -> Delete
 // -----------------------------------------
+
+fn get_random_value<T: Copy>(values: &[T]) -> T {
+    let mut rng = rand::rng();
+    let index = rng.random_range(0..values.len());
+    values[index]
+}
+
 
 pub async fn create_val(
     client: &mut GridRockClient<Channel>,
@@ -86,8 +94,17 @@ async fn run_lifecycle(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = GridRockClient::connect("http://[::1]:50051").await?;
-
+    let urls:  [&str; 3] = [
+        "http://[::1]:50051",
+        "http://[::1]:50052",
+        "http://[::1]:50053",];
+    
+    //get the random url from the array 
+    let random_url = get_random_value(&urls);
+    
+    
+    let mut client = GridRockClient::connect(random_url).await?;
+    
     // Bulk test: 1000 DISTINCT entities, each with its own unique_id,
     // each pushed through a full create/get/update/get/delete cycle.
     let pool = utils::generate_entity_pool(1000);
