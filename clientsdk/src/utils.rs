@@ -1,107 +1,127 @@
-use rand::Rng;
-use serde::Serialize;
-use std::time::{SystemTime, UNIX_EPOCH};
+use rand::RngExt;
 
-#[derive(Serialize, Debug)]
-struct NodeStatus {
-    ip_address: String,
-    gossip_port: u16,
-    tpu_port: u16,
-    version: String,
-    stake_weight: u64,
-    last_shred_received: u64,
-    timestamp: u64,
+// Adjust this to match your tonic-build generated module path,
+// e.g. `pub mod storage_system { tonic::include_proto!("storage_system"); }`
+use crate::storage_proto::{CreateRequest, DelValRequest, GetValRequest, UpdateRequest};
+
+// -----------------------------------------
+// Core idea: unique_id is the shared key across
+// Create / Update / Get / Delete. Generate it ONCE
+// per "test entity" and reuse it everywhere so a
+// full CRUD lifecycle test is actually coherent.
+// -----------------------------------------
+
+/// Represents one fake "account"/entity and every request
+/// variant you might want to test against it, all sharing
+/// the same unique_id.
+
+#[derive(Debug, Clone)]
+pub struct TestEntity {
+    pub unique_id: String,
+    pub initial_balance: u64,
+    pub updated_balance: u64,
+    pub executable: bool,
+    pub rent_epoch: u64,
+    pub data_hash: String,
+    pub last_updated_slot: u64,
 }
 
-pub fn generate_node_status_kv() -> (String, String) {
-    let mut rng = rand::thread_rng();
+impl TestEntity {
+    /// Generates a new fake entity with a fresh unique_id and
+    /// randomized field values.
+    pub fn generate() -> Self {
+        let mut rng = rand::rng(); // <- was thread_rng()
 
-    let pubkey = generate_fake_base58(&mut rng, 44);
-    let key = format!("node:status:{}", pubkey);
+        TestEntity {
+            unique_id: generate_fake_base58(&mut rng, 44),
+            initial_balance: rng.random_range(0..1_000_000_000),
+            updated_balance: rng.random_range(0..1_000_000_000),
+            executable: rng.random_bool(0.2), // was gen_bool
+            rent_epoch: rng.random_range(0..500),
+            data_hash: generate_hex_string(&mut rng, 32),
+            last_updated_slot: rng.random_range(1_000_000..5_000_000),
+        }
+    }
 
-    let status = NodeStatus {
-        ip_address: format!(
-            "{}.{}.{}.{}",
-            rng.gen_range(1..255),
-            rng.gen_range(0..255),
-            rng.gen_range(0..255),
-            rng.gen_range(1..255)
-        ),
-        gossip_port: 8001,
-        tpu_port: 8004,
-        version: "1.17.2".to_string(),
-        stake_weight: rng.gen_range(10_000_000..50_000_000_000),
-        last_shred_received: rng.gen_range(1_000_000..5_000_000),
-        timestamp: current_timestamp(),
-    };
+    /// Builds the CreateRequest for this entity.
+    pub fn to_create_request(&self) -> CreateRequest {
+        CreateRequest {
+            unique_id: self.unique_id.clone(),
+            balance: self.initial_balance,
+            executable: self.executable,
+            rent_epoch: self.rent_epoch,
+            data_hash: self.data_hash.clone(),
+            last_updated_slot: self.last_updated_slot,
+        }
+    }
 
-    let value = serde_json::to_string(&status).expect("Failed to serialize NodeStatus");
-    (key, value)
+    /// Builds an UpdateRequest for this entity — same unique_id,
+    /// different balance, simulating a later state change.
+    pub fn to_update_request(&self) -> UpdateRequest {
+        UpdateRequest {
+            unique_id: self.unique_id.clone(),
+            balance: self.updated_balance,
+        }
+    }
+
+    /// Builds a GetValRequest for this entity's unique_id.
+    pub fn to_get_request(&self) -> GetValRequest {
+        GetValRequest {
+            unique_id: self.unique_id.clone(),
+        }
+    }
+
+    /// Builds a DelValRequest for this entity's unique_id.
+    pub fn to_delete_request(&self) -> DelValRequest {
+        DelValRequest {
+            unique_id: self.unique_id.clone(),
+        }
+    }
 }
 
-#[derive(Serialize, Debug)]
-struct PendingTransaction {
-    sender: String,
-    recent_blockhash: String,
-    fee_tier: String,
-    payload_size_bytes: u32,
-    raw_instruction_blob: String,
-    received_at: u64,
+/// Generates a pool of N distinct test entities, useful for
+/// bulk/load testing or exercising multiple keys at once.
+pub fn generate_entity_pool(count: usize) -> Vec<TestEntity> {
+    (0..count).map(|_| TestEntity::generate()).collect()
 }
 
-pub fn generate_pending_tx_kv() -> (String, String) {
-    let mut rng = rand::thread_rng();
-
-    let signature = generate_fake_base58(&mut rng, 88);
-    let key = format!("tx:pending:{}", signature);
-
-    let tiers = ["low", "medium", "high"];
-    let selected_tier = tiers[rng.gen_range(0..tiers.len())];
-
-    let tx = PendingTransaction {
-        sender: generate_fake_base58(&mut rng, 44),
-        recent_blockhash: generate_fake_base58(&mut rng, 44),
-        fee_tier: selected_tier.to_string(),
-        payload_size_bytes: rng.gen_range(200..1232),
-        raw_instruction_blob: format!("0x{}", generate_hex_string(&mut rng, 64)),
-        received_at: current_timestamp(),
-    };
-
-    let value = serde_json::to_string(&tx).expect("Failed to serialize PendingTransaction");
-    (key, value)
-}
-
-fn current_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock is before UNIX epoch")
-        .as_secs()
-}
-
-/// Generates a random alphanumeric string to simulate Base58 addresses
-fn generate_fake_base58(rng: &mut impl Rng, length: usize) -> String {
+// -----------------------------------------
+// Helper Functions
+// -----------------------------------------
+fn generate_fake_base58(rng: &mut impl RngExt, length: usize) -> String {
     const CHARSET: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
     (0..length)
-        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+        .map(|_| CHARSET[rng.random_range(0..CHARSET.len())] as char)
         .collect()
 }
 
-/// Generates a random hex string to simulate raw byte payloads
-fn generate_hex_string(rng: &mut impl Rng, length: usize) -> String {
+fn generate_hex_string(rng: &mut impl RngExt, length: usize) -> String {
     const CHARSET: &[u8] = b"0123456789abcdef";
     (0..length)
-        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+        .map(|_| CHARSET[rng.random_range(0..CHARSET.len())] as char)
         .collect()
 }
 
-fn main() {
-    println!("--- Generating Node Status Data ---");
-    let (node_key, node_value) = generate_node_status_kv();
-    println!("Key: {}", node_key);
-    println!("Value: {}\n", node_value);
+// -----------------------------------------
+// Example usage: full CRUD lifecycle against one entity
+// -----------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    println!("--- Generating Pending Tx Data ---");
-    let (tx_key, tx_value) = generate_pending_tx_kv();
-    println!("Key: {}", tx_key);
-    println!("Value: {}", tx_value);
+    #[test]
+    fn test_entity_lifecycle_requests_share_same_id() {
+        let entity = TestEntity::generate();
+
+        let create_req = entity.to_create_request();
+        let update_req = entity.to_update_request();
+        let get_req = entity.to_get_request();
+        let del_req = entity.to_delete_request();
+
+        // All four requests must reference the same key
+        assert_eq!(create_req.unique_id, entity.unique_id);
+        assert_eq!(update_req.unique_id, entity.unique_id);
+        assert_eq!(get_req.unique_id, entity.unique_id);
+        assert_eq!(del_req.unique_id, entity.unique_id);
+    }
 }

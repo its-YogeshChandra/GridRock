@@ -1,73 +1,98 @@
 pub mod storage_proto {
     tonic::include_proto!("storage_system");
 }
+
+use crate::TestEntity;
 use crate::storage_proto::grid_rock_client::GridRockClient;
-use crate::storage_proto::{CreateRequest, DelValRequest, GetValRequest, UpdateRequest};
-use crate::utils::generate_node_status_kv;
-use tokio;
+use tonic::transport::Channel;
 
-//create function
-pub async fn create_val() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = GridRockClient::connect("http://[::1]:50051").await?;
+// -----------------------------------------
+// CRUD functions — take an existing client + entity,
+// so the same unique_id flows through Create -> Update -> Get -> Delete
+// -----------------------------------------
 
-    for _ in 0..1000 {
-        let data = generate_node_status_kv();
-        let create_request = CreateRequest {
-            unique_id: "test".to_string(),
-            balance: 100,
-            executable: true,
-            rent_epoch: 0,
-            data_hash: "test".to_string(),
-            last_updated_slot: 0,
-        };
-        let response = client.create_valin_storage(create_request).await?;
-        println!("{:#?}", response);
+pub async fn create_val(
+    client: &mut GridRockClient<Channel>,
+    entity: &TestEntity,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response = client
+        .create_valin_storage(entity.to_create_request())
+        .await;
+    match response {
+        Ok(resp) => {
+            println!("[CREATE] {:#?}", resp.into_inner());
+        }
+        Err(e) => {
+            eprintln!("[CREATE] failed for id {}: {:?}", entity.unique_id, e);
+            return Err(Box::new(e));
+        }
     }
-
-    println!("{:#?}", response);
     Ok(())
 }
 
-//update function
-pub async fn update_val() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = GridRockClient::connect("http://[::1]:50051").await?;
-    let update_request = UpdateRequest {
-        unique_id: "test".to_string(),
-        balance: 100,
-    };
-    let response = client.update_valin_storage(update_request).await?;
-    println!("{:#?}", response);
+pub async fn update_val(
+    client: &mut GridRockClient<Channel>,
+    entity: &TestEntity,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response = client
+        .update_valin_storage(entity.to_update_request())
+        .await?;
+    println!("[UPDATE] {:#?}", response.into_inner());
     Ok(())
 }
 
-//get function
-pub async fn get_val() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = GridRockClient::connect("http://[::1]:50051").await?;
-    let get_request = GetValRequest {
-        unique_id: "test".to_string(),
-    };
-    let response = client.get_valfrom_storage(get_request).await?;
-    println!("{:#?}", response);
+pub async fn get_val(
+    client: &mut GridRockClient<Channel>,
+    entity: &TestEntity,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response = client.get_valfrom_storage(entity.to_get_request()).await?;
+    println!("[GET] {:#?}", response.into_inner());
     Ok(())
 }
 
-//delete function
-pub async fn delete_val() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = GridRockClient::connect("http://[::1]:50051").await?;
-    let delete_request = DelValRequest {
-        unique_id: "test".to_string(),
-    };
-    let response = client.del_valfrom_storage(delete_request).await?;
-    println!("{:#?}", response);
+pub async fn delete_val(
+    client: &mut GridRockClient<Channel>,
+    entity: &TestEntity,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response = client
+        .del_valfrom_storage(entity.to_delete_request())
+        .await?;
+    println!("[DELETE] {:#?}", response.into_inner());
+    Ok(())
+}
+
+// -----------------------------------------
+// Full lifecycle test for ONE entity: Create -> Get -> Update -> Get -> Delete -> Get (should fail/not found)
+// -----------------------------------------
+async fn run_lifecycle(
+    client: &mut GridRockClient<Channel>,
+    entity: &TestEntity,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_val(client, entity).await?;
+    get_val(client, entity).await?; // confirm it exists with initial_balance
+    update_val(client, entity).await?;
+    get_val(client, entity).await?; // confirm balance changed to updated_balance
+    delete_val(client, entity).await?;
+
+    // this call should now come back with success = false / not found,
+    // depending on how your server signals "missing key"
+    let post_delete_get = client.get_valfrom_storage(entity.to_get_request()).await?;
+    println!("[GET after DELETE] {:#?}", post_delete_get.into_inner());
+
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    create_val().await?;
-    update_val().await?;
-    get_val().await?;
-    delete_val().await?;
+    let mut client = GridRockClient::connect("http://[::1]:50051").await?;
+
+    // Bulk test: 1000 DISTINCT entities, each with its own unique_id,
+    // each pushed through a full create/get/update/get/delete cycle.
+    let pool = crate::utils::generate_entity_pool(1000);
+
+    for entity in &pool {
+        run_lifecycle(&mut client, entity).await?;
+    }
 
     Ok(())
 }
