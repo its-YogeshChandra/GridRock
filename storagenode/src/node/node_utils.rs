@@ -3,9 +3,10 @@ use protobuf::Message as protobufMessage;
 use raft::eraftpb;
 use prost::Message;
 use raft::{Config, StateRole, raw_node::RawNode, storage::MemStorage};
-use slog::{o};
+use slog::{Drain, o};
 use std::collections::HashMap;
 
+use std::ops::ControlFlow::Continue;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc::Receiver, oneshot};
 use tokio::time::timeout;
@@ -17,7 +18,7 @@ use crate::storage_proto::raft_proposal::Operation;
 use std::sync::{Arc, RwLock};
 use crate::ClusterState;
 use crate::grpc_client::node_comm_client::{forward_proposal, send_raft_message};
-
+use slog_stdlog;
 
 
 //Create a private module to "seal" the trait
@@ -249,7 +250,7 @@ pub fn create_raft_node(id: u64, peers: Vec<u64>) -> RawNode<MemStorage> {
     };
     config.validate().unwrap();
     let node_storage = MemStorage::new_with_conf_state((peers, vec![]));
-    let logger = slog::Logger::root(slog::Discard, o!());
+    let logger = slog::Logger::root(slog_stdlog::StdLog.fuse(), o!());
     RawNode::new(&config, node_storage, &logger).unwrap()
 }
 
@@ -466,7 +467,7 @@ async fn process_ready_state(
 // node marks the added to
 //then it gets added to the queue
 //and then it get executed
-pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver<Msg>, cluster_state: Arc<RwLock<ClusterState>>) {
+pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver<Msg>, cluster_state: Arc<RwLock<ClusterState>>, sender: tokio::sync::mpsc::Sender<Msg>) {
     let timeout_dur = Duration::from_millis(100);
     let mut remaining_timeout = timeout_dur;
 
@@ -479,6 +480,12 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
     //keyed by the read context (proposal id as bytes), value is the PendingRead struct
     let mut pending_reads: HashMap<Vec<u8>, PendingRead> = HashMap::new();
 
+    //kick off the the leader campaign 
+    let election_campaign = node.campaign().map_err(|_| "Failed to start leader election");
+    if election_campaign.is_err(){
+        panic!("election campaign failed")
+    }
+
     loop {
         let now = Instant::now();
 
@@ -486,6 +493,16 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
             Ok(Some(Msg::Propose { proposemsg })) => {
                 //check if the node is leader or not
                 let is_leader = node.raft.state == StateRole::Leader;
+
+                if !is_leader && node.raft.leader_id == 0 {
+                    let reque_response  = sender.send(Msg::Propose { proposemsg }).await;
+                    if reque_response.is_err() {
+                        panic!("failed to reque the request from grpc handler");
+                    }
+                    continue;
+                }
+
+
 
                 if !is_leader {
 
@@ -536,6 +553,7 @@ pub async fn processor_node(mut node: &mut RawNode<MemStorage>, mut rx: Receiver
                             response_tx: proposemsg.response_tx,
                         },
                     );
+
                     node.read_index(rctx);
 
                     if node.has_ready() {

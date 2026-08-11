@@ -107,9 +107,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create the raft node with the configured ID and peer list
     let mut node = create_raft_node(config.node_id, config.peer_ids);
 
+    //tx for the processor node 
+    let tx_processor_node = tx.clone();
+    
     // Spawn the raft processor loop
     tokio::spawn(async move {
-        node::node_utils::processor_node(&mut node, rx, cluster_for_processor_node).await;
+        node::node_utils::processor_node(&mut node, rx, cluster_for_processor_node, tx_processor_node).await;
     });
 
     // Create the grpc server with both client-facing and node-to-node services

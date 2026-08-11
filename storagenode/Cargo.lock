@@ -1289,6 +1289,7 @@ dependencies = [
  "raft",
  "rocksdb",
  "slog",
+ "slog-stdlog",
  "tempfile",
  "tokio",
  "tonic",

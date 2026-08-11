@@ -8,7 +8,6 @@ use protobuf::Message as ProtobufMessage;
 use crate::node::node_utils::{Msg, ProposeMessage, OperationType, ConfChangeMessage};
 use std::sync::{Arc, RwLock};
 use crate::ClusterState;
-use crate::storage_proto::CreateRequest;
 use crate::server::{RaftProcessedResponse, COUNTER};
 use crate::errors::request_errors::ClientGrpcRequestProcessingError;
 use crate::storage_proto::raft_proposal::Operation;
