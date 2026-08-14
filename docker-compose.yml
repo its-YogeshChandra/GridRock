@@ -47,3 +47,6 @@ volumes:
   storagenode1_data:
   storagenode2_data:
   storagenode3_data:
+
+
+  
