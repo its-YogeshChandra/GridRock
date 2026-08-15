@@ -1,16 +1,17 @@
-mod node;
-mod grpc_client;
 mod errors;
+mod grpc_client;
+mod node;
+mod proto;
 
 pub mod node_comm {
     tonic::include_proto!("node_comm");
 }
 
+use node::node_utils::{Msg, create_raft_node};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio;
 use tokio::sync::mpsc::channel;
-use node::node_utils::{create_raft_node, Msg};
-use std::collections::HashMap;
 
 pub struct ClusterState {
     pub leader_id: u64,
@@ -42,8 +43,9 @@ fn read_node_config() -> NodeConfig {
         .parse()
         .expect("NODE_PORT must be a valid u16");
 
-    let peers_raw = std::env::var("NODE_PEERS")
-        .expect("NODE_PEERS env var is required (e.g. '1:[::1]:50051,2:[::1]:50052,3:[::1]:50053')");
+    let peers_raw = std::env::var("NODE_PEERS").expect(
+        "NODE_PEERS env var is required (e.g. '1:[::1]:50051,2:[::1]:50052,3:[::1]:50053')",
+    );
 
     let mut peer_ids: Vec<u64> = Vec::new();
     let mut peer_registry: HashMap<u64, String> = HashMap::new();
@@ -54,7 +56,9 @@ fn read_node_config() -> NodeConfig {
             continue;
         }
         // Split on first ':' only — address itself may contain ':'
-        let colon_pos = trimmed.find(':').expect("Invalid NODE_PEERS format, expected id:address");
+        let colon_pos = trimmed
+            .find(':')
+            .expect("Invalid NODE_PEERS format, expected id:address");
         let id_str = &trimmed[..colon_pos];
         let addr_str = &trimmed[colon_pos + 1..];
 
@@ -77,7 +81,6 @@ fn read_node_config() -> NodeConfig {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     // Read all config from env
     let config = read_node_config();
 
@@ -98,12 +101,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create the raft node with the configured ID and peer list
     let mut node = create_raft_node(config.node_id, config.peer_ids);
 
-    //tx for the processor node 
+    //tx for the processor node
     let tx_processor_node = tx.clone();
 
     // Spawn the raft processor loop
     tokio::spawn(async move {
-        node::node_utils::processor_node(&mut node, rx, cluster_for_processor_node, tx_processor_node).await;
+        node::node_utils::processor_node(
+            &mut node,
+            rx,
+            cluster_for_processor_node,
+            tx_processor_node,
+        )
+        .await;
     });
 
     // TODO: add gRPC server services here once the shard controller's proto
