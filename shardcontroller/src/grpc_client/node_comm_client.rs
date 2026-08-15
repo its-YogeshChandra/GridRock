@@ -1,10 +1,8 @@
 //functions for the client side for node to node communication
 use crate::node_comm::node_comm_client::NodeCommClient;
 use crate::node_comm::{
-    RaftMessageRequest, RaftMessageResponse,
-    ForwardProposalRequest, ForwardProposalResponse,
-    GetClusterInfoRequest, GetClusterInfoResponse,
-    JoinClusterRequest, JoinClusterResponse,
+    ForwardProposalRequest, ForwardProposalResponse, GetClusterInfoRequest, GetClusterInfoResponse,
+    JoinClusterRequest, JoinClusterResponse, RaftMessageRequest, RaftMessageResponse,
 };
 
 /// Helper to build a gRPC endpoint URL from a host string and port.

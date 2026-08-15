@@ -1,4 +1,5 @@
 mod errors;
+mod file_store;
 mod grpc_client;
 mod node;
 mod proto;
