@@ -1,7 +1,8 @@
 use tokio;
 mod client;
-pub mod utils;
+mod shard_controller;
 
+pub mod utils;
 pub mod storage_proto {
     tonic::include_proto!("storage_system");
 }
