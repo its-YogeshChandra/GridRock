@@ -1,8 +1,6 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
+use xxhash_rust::xxh3::xxh3_64;
 
+//struct definition for config Val : the main struct for the config
 #[derive(Debug)]
 struct ConfigVal {
     tick_value: u64,
@@ -54,85 +52,9 @@ impl Config {
     }
 }
 
-// Combined hash function for both servers and keys
-fn get_hash_value(value: &str) -> u64 {
-    let mut string_hash = DefaultHasher::new();
-    value.hash(&mut string_hash);
-
-    // NOTE: Removed `% 18446744073709551615`.
-    // finish() already returns a full u64. Modulo by u64::MAX is mathematically flawed
-    // because it maps the maximum possible value back to 0.
-    // The raw output IS your position on the 2^64 ring!
-    let response = string_hash.finish();
-    response
+///has to add error handling on this function
+pub fn hashing_function(value: String) -> u64 {
+    //take the value and convert to give the hash of that value
+    let hashed_value = xxh3_64(value.as_bytes());
+    hashed_value
 }
-
-fn main() {
-    let mac_addr = [
-        "192.168.1.1",
-        "10.0.0.25",
-        "172.16.254.1",
-        "8.8.8.8",
-        "1.1.1.1",
-        "127.0.0.1",
-        "192.168.0.100",
-        "10.10.10.10",
-        "203.0.113.5",
-        "198.51.100.2",
-    ];
-
-    let key_string_arr = [
-        "bTdhNzY4ZThkMWIxNmVmNA==",
-        "ZTQ2NTVmMTdjZTVkZmE2OQ==",
-        "NTZjYTk1NjEyMjI4ZjMzNw==",
-        "YmMzZTYzYzRjODNkYzdiOA==",
-        "YzExOGU2MDFhMjg3ZmFiYw==",
-    ];
-
-    let mut vec_config_arr: Vec<ConfigVal> = Vec::new();
-
-    println!("--- Initializing Servers ---");
-    for val in mac_addr {
-        let result = get_hash_value(val);
-        println!("Server {} tick: {}", val, result);
-
-        vec_config_arr.push(ConfigVal {
-            tick_value: result,
-            address: val.to_string(),
-        });
-    }
-
-    // Create config (this will sort the Vec internally)
-    let mut config = Config::new(vec_config_arr);
-
-    println!("\n--- Finding Servers for Keys ---");
-    for val in key_string_arr {
-        let tick_value = get_hash_value(val);
-        println!("Key {} tick: {}", val, tick_value);
-
-        // Idiomatic Rust: call the method directly on the instance
-        if let Some(server_address) = config.find_nearest(tick_value) {
-            println!("-> Assigned to server: {}\n", server_address);
-        }
-    }
-
-    // --- Let's test adding a new server dynamically! ---
-    println!("--- Adding a new server dynamically ---");
-    let new_server_addr = "192.168.50.50";
-    let new_server_tick = get_hash_value(new_server_addr);
-    println!("New Server {} tick: {}", new_server_addr, new_server_tick);
-
-    // This uses binary search to insert it in the exact right sorted position!
-    config.add_entry(ConfigVal {
-        tick_value: new_server_tick,
-        address: new_server_addr.to_string(),
-    });
-
-    println!("\nTesting the first key again to see if it moved:");
-    let first_key = key_string_arr[0];
-    let first_key_tick = get_hash_value(first_key);
-    if let Some(server_address) = config.find_nearest(first_key_tick) {
-        println!("-> Assigned to server: {}", server_address);
-    }
-}
-
