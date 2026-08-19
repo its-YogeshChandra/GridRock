@@ -37,7 +37,7 @@ pub struct Config {
     //build the whole config directly from server addresses :
     //every address becomes a ConfigVal hashed onto the ring, then sorted
     pub fn from_addresses(addresses: Vec<String>) -> Self {
-        let config: Vec<ConfigVal> = addresses.into_iter().map(ConfigVal::new).collect();  ///used fp 
+        let config: Vec<ConfigVal> = addresses.into_iter().map(ConfigVal::new).collect();  //used fp 
         Config::new(config)
     }
 
