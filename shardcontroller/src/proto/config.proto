@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package shard_config;
+
+// Maps virtual shards to database servers using consistent hashing.
+service ShardController {
+  rpc GetFullConfig(GetFullConfigRequest) returns (GetFullConfigResponse);
+  rpc AddServer(AddServerRequest) returns (AddServerResponse);
+  rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse);
+  rpc GetServers(GetServersRequest) returns (GetServersResponse);
+}
+
+
+// Internal representation of a server's position on the consistent hash ring.
+message ConfigVal {
+  uint64 tick_value = 1;
+  string address = 2;
+}
+
+message ServerInfo {
+  string server_id = 1;
+  string address = 2;
+  uint32 port = 3;
+}
+
+message GetFullConfigRequest {}
+
+message GetFullConfigResponse {
+  bool success = 1;
+  string message = 2;
+  repeated ConfigVal config = 3;
+}
+
+message AddServerRequest {
+  ServerInfo server = 1;
+}
+
+message AddServerResponse {
+  bool success = 1;
+  string message = 2;
+  repeated ConfigVal config = 3;
+}
+
+message RemoveServerRequest {
+  string server_id = 1;
+}
+
+message RemoveServerResponse {
+  bool success = 1;
+  string message = 2;
+  repeated ConfigVal config = 3;
+}
+
+message GetServersRequest {}
+
+message GetServersResponse {
+  repeated ServerInfo servers = 1;
+}

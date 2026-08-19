@@ -1,0 +1,15 @@
+[package]
+name = "shardcontroller"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = {version = "1.53.1", features = ["full"]}
+tonic = { version = "0.14.6", features = ["default"] }
+prost = "0.14"
+tonic-prost = "0.14.6"
+protobuf = "2.28"
+xxhash-rust = {version = "0.8.18", features = ["xxh3", "const_xxh3"]}
+
+[build-dependencies]
+tonic-prost-build = "0.14.6"

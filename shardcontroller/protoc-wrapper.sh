@@ -6,7 +6,7 @@
 REAL_PROTOC="/opt/homebrew/bin/protoc"
 
 if [ "$1" = "--version" ]; then
-    echo "libprotoc 3.21.0"
+  echo "libprotoc 3.21.0"
 else
-    exec "$REAL_PROTOC" "$@"
+  exec "$REAL_PROTOC" "$@"
 fi

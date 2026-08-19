@@ -24,10 +24,6 @@ pub struct Config {
     config: Vec<ConfigVal>,
 }
 
-//in-memory store : set once from main, keeps the config state alive for the
-//whole lifetime of the program. Every read hands out a 'static reference to
-//the SAME config, so no cloning is needed anywhere.
-static CONFIG_STORE: OnceLock<Config> = OnceLock::new();
 
 impl Config {
     // 1. Create new config and SORT it immediately
@@ -84,10 +80,16 @@ pub fn hashing_function(value: String) -> u64 {
     hashed_value
 }
 
+
 // -----------------------------------------
 // Global in-memory store — call `init_config_store` once from main,
 // then `get_config_store` returns a &'static Config reference anywhere.
 // -----------------------------------------
+
+//in-memory store : set once from main, keeps the config state alive for the
+//whole lifetime of the program. Every read hands out a 'static reference to
+//the SAME config, so no cloning is needed anywhere.
+static CONFIG_STORE: OnceLock<Config> = OnceLock::new();
 
 ///store the config globally. call this once at startup.
 ///panics if called more than once.
