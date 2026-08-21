@@ -8,7 +8,7 @@ pub mod shard_config_services {
 }
 mod states;
 mod errors;
-
+mod client;
 
 
 //extend the functions from this lib
