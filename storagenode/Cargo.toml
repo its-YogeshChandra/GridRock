@@ -17,7 +17,3 @@ slog-stdlog = "4.1.1"
 
 [build-dependencies]
 tonic-prost-build = "0.14.6"
-
-[[bin]]
-name = "build.rs"
-path = "./build.rs"

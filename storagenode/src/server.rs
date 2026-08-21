@@ -2,7 +2,7 @@ use prost::Message;
 use tonic::{Request, Response, Status};
 use crate::storage_proto::raft_proposal::Operation;
 use crate::storage_proto::{
-    CreateRequest, DelValRequest, PutRequest, GetValRequest, StorageResponse, RaftProposal,
+    DelValRequest, PutRequest, GetValRequest, StorageResponse, RaftProposal,
     grid_rock_server::GridRock,
 };
 use tokio::sync::{mpsc::{Sender}, oneshot};
@@ -18,7 +18,7 @@ pub struct StorageServer{
 pub struct RaftProcessedResponse{
     pub id : Option<String>,
     pub success : bool,
-    pub data : Option<CreateRequest>
+    pub data : Option<Vec<u8>>
 }
 
 
@@ -189,10 +189,8 @@ impl GridRock for StorageServer {
                 };
 
 
-                // Populate the data fields from the record if present
-                if let Some(record) = response.data {
-                    response_val.data = Some(record.encode_to_vec());
-                }
+                // Forward raw bytes from DB
+                response_val.data = response.data;
 
                 Ok(Response::new(response_val))
             }

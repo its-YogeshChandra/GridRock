@@ -1,8 +1,6 @@
-use prost::Message;
 use rocksdb::DB;
 use std::path::PathBuf;
 
-use crate::storage_proto::PutRequest;
 use crate::errors::rocksdb_error::DbError;
 
 
@@ -31,85 +29,66 @@ pub fn get_db_connection() -> Result<DB, rocksdb::Error> {
 // CRUD operations
 
 /// Creates a new entry in the database.
-/// The `CreateRequest` is serialized to protobuf bytes and stored under
-/// the `unique_id` key. Returns an error if the key already exists.
-pub fn db_create<'a>(db: &'a DB, request: &'a PutRequest) -> Result<&'a str, DbError<'a>> {
-    let key = request.unique_id.as_bytes();
+/// Stores the raw `value` bytes under the given `key`.
+/// Returns an error if the key already exists.
+pub fn db_create<'a>(db: &'a DB, key: &'a str, value: &[u8]) -> Result<&'a str, DbError<'a>> {
+    let key_bytes = key.as_bytes();
 
     // Guard: reject duplicate keys
-    if db.get(key)?.is_some() {
-        return Err(DbError::KeyAlreadyExists(&request.unique_id));
+    if db.get(key_bytes)?.is_some() {
+        return Err(DbError::KeyAlreadyExists(key));
     }
 
-    let value = request.encode_to_vec();
-    db.put(key, value)?;
-    
-    //return the id of the request  
-    Ok(&request.unique_id)
+    db.put(key_bytes, value)?;
+    Ok(key)
 }
 
 
-/// Reads an entry from the database by its `unique_id`.
-/// Returns the deserialized `CreateRequest` if found, or a `KeyNotFound` error.
-pub fn db_read<'a>(db: &'a DB, unique_id: &'a str) -> Result<CreateRequest, DbError<'a>> {
-    let key = unique_id.as_bytes();
+/// Reads an entry from the database by its key.
+/// Returns the raw bytes if found, or a `KeyNotFound` error.
+pub fn db_read<'a>(db: &'a DB, key: &'a str) -> Result<Vec<u8>, DbError<'a>> {
+    let key_bytes = key.as_bytes();
 
-    match db.get(key)? {
-        Some(raw_bytes) =>{
-            let entry = CreateRequest::decode(raw_bytes.as_slice())
-                .map_err(|_| {
-                    DbError::SerializationError("error while serializing")
-                })?;
-                
-            Ok(entry)
-        }
-        None => Err(DbError::KeyNotFound(&unique_id)),
+    match db.get(key_bytes)? {
+        Some(raw_bytes) => Ok(raw_bytes.to_vec()),
+        None => Err(DbError::KeyNotFound(key)),
     }
 }
 
 
-/// Updates an existing entry's balance.
-/// Fetches the current record, applies the new balance, re-serializes,
-/// and writes back. Returns an error if the key does not exist.
-pub fn db_update<'a>(db: &DB, unique_id: &'a str, new_balance: u64) -> Result<&'a str, DbError<'a>> {
-    let key = unique_id.as_bytes();
-
-    // Fetch existing record
-    let raw_bytes = db
-        .get(key)?
-        .ok_or_else(|| DbError::KeyNotFound(unique_id))?;
-
-    let mut entry = CreateRequest::decode(raw_bytes.as_slice())
-        .map_err(|_| DbError::SerializationError("error while serializing"))?;
-
-    // Apply the update
-    entry.balance = new_balance;
-
-    // Write the modified record back
-    let value = entry.encode_to_vec();
-    db.put(key, value)?;
-    Ok(unique_id)
-}
-
-
-/// Deletes an entry from the database by its `unique_id`.
+/// Updates an existing entry with new raw bytes.
 /// Returns an error if the key does not exist.
-pub fn db_delete<'a>(db: &DB, unique_id: &'a str) -> Result<&'a str, DbError<'a>> {
-    let key = unique_id.as_bytes();
+pub fn db_update<'a>(db: &'a DB, key: &'a str, value: &[u8]) -> Result<&'a str, DbError<'a>> {
+    let key_bytes = key.as_bytes();
+
+    // Guard: reject updating non-existent keys
+    if db.get(key_bytes)?.is_none() {
+        return Err(DbError::KeyNotFound(key));
+    }
+
+    db.put(key_bytes, value)?;
+    Ok(key)
+}
+
+
+/// Deletes an entry from the database by its key.
+/// Returns an error if the key does not exist.
+pub fn db_delete<'a>(db: &DB, key: &'a str) -> Result<&'a str, DbError<'a>> {
+    let key_bytes = key.as_bytes();
 
     // Guard: reject deleting non-existent keys
-    if db.get(key)?.is_none() {
-        return Err(DbError::KeyNotFound(unique_id));
+    if db.get(key_bytes)?.is_none() {
+        return Err(DbError::KeyNotFound(key));
     }
 
-    db.delete(key)?;
-    Ok(unique_id)
+    db.delete(key_bytes)?;
+    Ok(key)
 }
 
-/// Checks whether a key exists in the database without deserializing the value.
-pub fn db_exists<'a>(db: &DB, unique_id: &str) -> Result<bool, DbError<'a>> {
-    let key = unique_id.as_bytes();
-    Ok(db.get(key)?.is_some())
+/// Checks whether a key exists in the database without reading the value.
+pub fn db_exists<'a>(db: &DB, key: &str) -> Result<bool, DbError<'a>> {
+    let key_bytes = key.as_bytes();
+    Ok(db.get(key_bytes)?.is_some())
 }
 
 
@@ -129,38 +108,24 @@ mod tests {
         (db, tmp)
     }
 
-    /// Helper: builds a sample `CreateRequest`.
-    fn sample_request(id: &str, balance: u64) -> CreateRequest {
-        CreateRequest {
-            unique_id: id.to_string(),
-            balance,
-            executable: false,
-            rent_epoch: 0,
-            data_hash: String::new(),
-            last_updated_slot: 0,
-        }
-    }
-
     #[test]
     fn test_create_and_read() {
         let (db, _tmp) = open_test_db();
-        let req = sample_request("acc_1", 1000);
+        let value = b"hello gridrock";
 
-        db_create(&db, &req).unwrap();
-        let entry = db_read(&db, "acc_1").unwrap();
+        db_create(&db, "key_1", value).unwrap();
+        let result = db_read(&db, "key_1").unwrap();
 
-        assert_eq!(entry.unique_id, "acc_1");
-        assert_eq!(entry.balance, 1000);
+        assert_eq!(result, value);
     }
 
     #[test]
     fn test_create_duplicate_fails() {
         let (db, _tmp) = open_test_db();
-        let req = sample_request("acc_dup", 500);
 
-        db_create(&db, &req).unwrap();
+        db_create(&db, "key_dup", b"first").unwrap();
 
-        match db_create(&db, &req) {
+        match db_create(&db, "key_dup", b"second") {
             Err(DbError::KeyAlreadyExists(_)) => {} // expected
             other => panic!("expected KeyAlreadyExists, got {:?}", other),
         }
@@ -179,20 +144,19 @@ mod tests {
     #[test]
     fn test_update() {
         let (db, _tmp) = open_test_db();
-        let req = sample_request("acc_upd", 100);
 
-        db_create(&db, &req).unwrap();
-        db_update(&db, "acc_upd", 9999).unwrap();
+        db_create(&db, "key_upd", b"old_value").unwrap();
+        db_update(&db, "key_upd", b"new_value").unwrap();
 
-        let entry = db_read(&db, "acc_upd").unwrap();
-        assert_eq!(entry.balance, 9999);
+        let result = db_read(&db, "key_upd").unwrap();
+        assert_eq!(result, b"new_value");
     }
 
     #[test]
     fn test_update_missing_key_fails() {
         let (db, _tmp) = open_test_db();
 
-        match db_update(&db, "ghost", 42) {
+        match db_update(&db, "ghost", b"data") {
             Err(DbError::KeyNotFound(_)) => {} // expected
             other => panic!("expected KeyNotFound, got {:?}", other),
         }
@@ -201,12 +165,11 @@ mod tests {
     #[test]
     fn test_delete() {
         let (db, _tmp) = open_test_db();
-        let req = sample_request("acc_del", 200);
 
-        db_create(&db, &req).unwrap();
-        db_delete(&db, "acc_del").unwrap();
+        db_create(&db, "key_del", b"data").unwrap();
+        db_delete(&db, "key_del").unwrap();
 
-        assert!(!db_exists(&db, "acc_del").unwrap());
+        assert!(!db_exists(&db, "key_del").unwrap());
     }
 
     #[test]
@@ -222,10 +185,10 @@ mod tests {
     #[test]
     fn test_exists() {
         let (db, _tmp) = open_test_db();
-        let req = sample_request("acc_exists", 300);
 
-        assert!(!db_exists(&db, "acc_exists").unwrap());
-        db_create(&db, &req).unwrap();
-        assert!(db_exists(&db, "acc_exists").unwrap());
+        assert!(!db_exists(&db, "key_exists").unwrap());
+        db_create(&db, "key_exists", b"data").unwrap();
+        assert!(db_exists(&db, "key_exists").unwrap());
     }
 }
+

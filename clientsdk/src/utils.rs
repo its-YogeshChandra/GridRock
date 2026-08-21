@@ -1,6 +1,7 @@
 //extends functions using utils 
 //these functions are the base functions that are extended by the client sdk for calling the key value store 
 //these are the crud functions 
+// ponytail: signatures will match PutRequest/GetValRequest/DelValRequest when implemented
 
 pub fn create_value(){
   

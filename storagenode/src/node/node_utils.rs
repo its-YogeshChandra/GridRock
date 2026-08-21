@@ -169,11 +169,11 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
                     let result: Result<RaftProcessedResponse, ClientGrpcRequestProcessingError> = match proposal.operation {
                         Some(Operation::Create(ref create_req)) => {
                             eprintln!("[Raft] DB CREATE | key={}", create_req.unique_id);
-                            match db_create(&db, create_req) {
+                            match db_create(&db, &create_req.unique_id, &create_req.value) {
                                 Ok(created_id) => Ok(RaftProcessedResponse {
                                     id: Some(created_id.to_string()),
                                     success: true,
-                                    data: Some(create_req.clone()),
+                                    data: None,
                                 }),
                                 Err(e) => {
                                     eprintln!("[Raft] DB create failed: {}", e);
@@ -184,7 +184,7 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
 
                         Some(Operation::Update(ref update_req)) => {
                             eprintln!("[Raft] DB UPDATE | key={}", update_req.unique_id);
-                            match db_update(&db, &update_req.unique_id, update_req.balance) {
+                            match db_update(&db, &update_req.unique_id, &update_req.value) {
                                 Ok(updated_id) => Ok(RaftProcessedResponse {
                                     id: Some(updated_id.to_string()),
                                     success: true,
@@ -215,10 +215,10 @@ pub fn append_committed_entry(entry: eraftpb::Entry, cbs: &mut HashMap<u64, ones
                         Some(Operation::Get(ref get_req)) => {
                             eprintln!("[Raft] DB GET (via commit) | key={}", get_req.unique_id);
                             match db_read(&db, &get_req.unique_id) {
-                                Ok(record) => Ok(RaftProcessedResponse {
+                                Ok(raw_bytes) => Ok(RaftProcessedResponse {
                                     id: Some(get_req.unique_id.clone()),
                                     success: true,
-                                    data: Some(record),
+                                    data: Some(raw_bytes),
                                 }),
                                 Err(DbError::KeyNotFound(_)) => Ok(RaftProcessedResponse {
                                     id: Some(get_req.unique_id.clone()),
@@ -332,10 +332,10 @@ async fn process_ready_state(
                             }
                         };
                         match db_read(&db, &get_req.unique_id) {
-                            Ok(record) => Ok(RaftProcessedResponse {
+                            Ok(raw_bytes) => Ok(RaftProcessedResponse {
                                 id: Some(get_req.unique_id.clone()),
                                 success: true,
-                                data: Some(record),
+                                data: Some(raw_bytes),
                             }),
                             Err(DbError::KeyNotFound(_)) => Ok(RaftProcessedResponse {
                                 id: Some(get_req.unique_id.clone()),
@@ -474,10 +474,11 @@ async fn process_ready_state(
     node.advance_apply();
 }
 
+
 //node processor is the main function for the whole raft system
 //receiving the request
 //check weather the node is leader or not
-//if not either send error back wrong node || either pass the request to other node
+//pass the request to the leader node
 //checking the request against the config
 //check the correct config from shard controller if incorrect config present
 //if current node is leader , then update the logs and replicates log entry to followers

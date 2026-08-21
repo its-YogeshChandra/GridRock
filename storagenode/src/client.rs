@@ -3,19 +3,15 @@ pub mod storage_proto{
  tonic::include_proto!("storage_system");
 }
 use crate::storage_proto::grid_rock_client::GridRockClient;
-use crate::storage_proto::{CreateRequest, DelValRequest, UpdateRequest, GetValRequest};
+use crate::storage_proto::{PutRequest, DelValRequest, GetValRequest};
 use tokio;
 
 //create function 
 pub async fn create_val()-> Result<(), Box<dyn std::error::Error>>{
     let mut client = GridRockClient::connect("http://[::1]:50051").await?;
-    let create_request = CreateRequest {
+    let create_request = PutRequest {
         unique_id: "test".to_string(),
-        balance: 100,
-        executable: true,
-        rent_epoch: 0,
-        data_hash: "test".to_string(),
-        last_updated_slot: 0,
+        value: b"hello gridrock".to_vec(),
     };
     let response = client.create_valin_storage(create_request).await?;
     println!("{:#?}", response);
@@ -25,10 +21,10 @@ pub async fn create_val()-> Result<(), Box<dyn std::error::Error>>{
 //update function 
 pub async fn update_val()-> Result<(), Box<dyn std::error::Error>>{
     let mut client = GridRockClient::connect("http://[::1]:50051").await?;
-    let update_request = UpdateRequest {
+    let update_request = PutRequest {
         unique_id: "test".to_string(),
-        balance: 100,
-         };
+        value: b"updated value".to_vec(),
+    };
     let response = client.update_valin_storage(update_request).await?;
     println!("{:#?}", response);
     Ok(())
