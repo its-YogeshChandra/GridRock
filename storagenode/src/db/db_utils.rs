@@ -2,7 +2,7 @@ use prost::Message;
 use rocksdb::DB;
 use std::path::PathBuf;
 
-use crate::storage_proto::CreateRequest;
+use crate::storage_proto::PutRequest;
 use crate::errors::rocksdb_error::DbError;
 
 
@@ -33,7 +33,7 @@ pub fn get_db_connection() -> Result<DB, rocksdb::Error> {
 /// Creates a new entry in the database.
 /// The `CreateRequest` is serialized to protobuf bytes and stored under
 /// the `unique_id` key. Returns an error if the key already exists.
-pub fn db_create<'a>(db: &'a DB, request: &'a CreateRequest) -> Result<&'a str, DbError<'a>> {
+pub fn db_create<'a>(db: &'a DB, request: &'a PutRequest) -> Result<&'a str, DbError<'a>> {
     let key = request.unique_id.as_bytes();
 
     // Guard: reject duplicate keys

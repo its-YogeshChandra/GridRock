@@ -9,10 +9,13 @@ message CreateRequest{
     string data_hash = 5;
     uint64 last_updated_slot = 6;
 }
-message UpdateRequest {
-    string unique_id = 1;
-    uint64 balance = 2;
+
+
+message PutRequest {
+    string unique_id =1;
+    bytes values = 2;
 }
+
 
 message GetValRequest{
     string unique_id = 1;
@@ -26,13 +29,8 @@ message StorageResponse{
     string message = 1;
     bool success = 2;
 
-    // Data fields — populated only for Get responses
-    optional string unique_id = 3;
-    optional uint64 balance = 4;
-    optional bool executable = 5;
-    optional uint64 rent_epoch = 6;
-    optional string data_hash = 7;
-    optional uint64 last_updated_slot = 8;
+    optional string key = 3;
+    optional bytes data = 8;
 }    
 
 // Wrapper message for Raft log entries.
@@ -43,8 +41,8 @@ message RaftProposal {
     uint64 proposal_id = 1;
 
     oneof operation {
-        CreateRequest create = 2;
-        UpdateRequest update = 3;
+        PutRequest create = 2;
+        PutRequest update = 3;
         GetValRequest get = 4;
         DelValRequest delete = 5;
     }
@@ -53,8 +51,8 @@ message RaftProposal {
 
 
 service GridRock {
-    rpc CreateValinStorage (CreateRequest) returns (StorageResponse);
-    rpc UpdateValinStorage (UpdateRequest) returns (StorageResponse);
+    rpc CreateValinStorage (PutRequest) returns (StorageResponse);
+    rpc UpdateValinStorage (PutRequest) returns (StorageResponse);
     rpc GetValfromStorage (GetValRequest) returns (StorageResponse);
     rpc DelValfromStorage(DelValRequest)returns (StorageResponse);
 }

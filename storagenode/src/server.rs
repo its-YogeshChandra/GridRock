@@ -2,7 +2,7 @@ use prost::Message;
 use tonic::{Request, Response, Status};
 use crate::storage_proto::raft_proposal::Operation;
 use crate::storage_proto::{
-    CreateRequest, DelValRequest, UpdateRequest, GetValRequest, StorageResponse, RaftProposal,
+    CreateRequest, DelValRequest, PutRequest, GetValRequest, StorageResponse, RaftProposal,
     grid_rock_server::GridRock,
 };
 use tokio::sync::{mpsc::{Sender}, oneshot};
@@ -44,12 +44,10 @@ impl GridRock for StorageServer {
     /// Creates a new entry in storage. Fails if the unique_id already exists.
     async fn create_valin_storage(
         &self,
-        request: Request<CreateRequest>,
+        request: Request<PutRequest>,
     ) -> Result<Response<StorageResponse>, Status> //need to update the response type
     {
-
-        //check for node responsible for key range (testing against config from shard controller )
-        
+        //check for node responsible for key range (testing against config from shard controller)
         let request_val = request.into_inner();
         let unique_id = request_val.unique_id.clone();
         eprintln!("[gRPC] CREATE received | id={}", unique_id);
@@ -99,7 +97,7 @@ impl GridRock for StorageServer {
     /// Updates an existing entry's balance. Fails if the unique_id does not exist.
     async fn update_valin_storage(
         &self,
-        request: Request<UpdateRequest>,
+        request: Request<PutRequest>,
     ) -> Result<Response<StorageResponse>, Status> {
         
         let request_val = request.into_inner();
@@ -190,14 +188,10 @@ impl GridRock for StorageServer {
                     ..Default::default()
                 };
 
+
                 // Populate the data fields from the record if present
                 if let Some(record) = response.data {
-                    response_val.unique_id = Some(record.unique_id);
-                    response_val.balance = Some(record.balance);
-                    response_val.executable = Some(record.executable);
-                    response_val.rent_epoch = Some(record.rent_epoch);
-                    response_val.data_hash = Some(record.data_hash);
-                    response_val.last_updated_slot = Some(record.last_updated_slot);
+                    response_val.data = Some(record.encode_to_vec());
                 }
 
                 Ok(Response::new(response_val))
