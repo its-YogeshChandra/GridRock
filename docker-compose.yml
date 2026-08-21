@@ -1,4 +1,4 @@
-#compose file for the storage node 
+#compose file for the storage node + shard controller
 
 services:
   storagenode1:
@@ -42,6 +42,20 @@ services:
       - NODE_ID=3
       - NODE_PORT=50053
       - NODE_PEERS=1:storagenode1:50051,2:storagenode2:50052,3:storagenode3:50053
+
+  #config server : builds the consistent hash ring from the storage node
+  #addresses below (Server0Address, Server1Address, ... one per node)
+  shardcontroller:
+    build:
+      context: ./shardcontroller
+      dockerfile: dockerfile
+    container_name: shardcontroller
+    ports:
+      - "127.0.0.1:50060:50060"
+    environment:
+      - Server0Address=storagenode1:50051
+      - Server1Address=storagenode2:50052
+      - Server2Address=storagenode3:50053
 
 volumes:
   storagenode1_data:

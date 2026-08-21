@@ -1,7 +1,3 @@
-
-pub mod storage_proto{
- tonic::include_proto!("storage_system");
-}
 use crate::storage_proto::grid_rock_client::GridRockClient;
 use crate::storage_proto::{PutRequest, DelValRequest, GetValRequest};
 use tokio;

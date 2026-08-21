@@ -1,0 +1,63 @@
+#docker file for the shard controller
+#two-stage build: compile in builder, run in slim runtime
+#modeled on the storage node dockerfile
+
+#-------------------------------------------------
+#stage 1 : builder stage
+
+FROM rust:1.91.1-bookworm AS builder
+
+#install protobuf compiler (needed by build.rs)
+#no clang/libclang needed : the shard controller has no rocksdb dependency
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+#create dummy source for dependency caching
+RUN mkdir -p ./src && echo "fn main() {}" > ./src/main.rs
+
+#copy manifest files first for layer caching
+COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./
+
+#copy proto files (needed by build.rs during dependency caching step)
+COPY src/proto/ ./src/proto/
+
+#build dependencies only (dummy main.rs)
+RUN cargo build --release
+
+#remove dummy source and copy real source
+RUN rm -rf ./src
+COPY src/ ./src/
+
+#touch so cargo sees the new files as newer than the cached build
+RUN touch ./src/main.rs
+
+#build the real shard controller binary
+RUN cargo build --release
+
+#----------------------------------------
+# stage 2: Runtime
+FROM debian:bookworm-slim AS runtime
+
+#install only runtime dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+#copy the compiled binary from the builder stage
+COPY --from=builder /app/target/release/shardcontroller ./shardcontroller
+
+#create non-root user and group
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+
+USER appuser
+
+#the shard controller has no on-disk state (ring is built from env vars)
+#so no data directory or volume is needed
+EXPOSE 50060
+
+CMD ["./shardcontroller"]

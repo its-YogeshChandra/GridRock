@@ -15,15 +15,23 @@ use controllers::config_controller::ConfigController;
 use shard_config_service::shard_controller_server::ShardControllerServer;
 
 //helper function
+//reads Server0Address, Server1Address, ... until a variable is missing,
+//so the ring size is set by the environment (3 nodes in docker compose)
 fn parse_env_arguments() -> Vec<String> {
     let mut server_address_vec: Vec<String> = vec![];
-    for i in 0..5 {
-        let env_var = format!("Server{}Address", i);
-        let msg = format!("failed to read : {}", env_var);
-        let server_address_val = env::var(env_var).expect(&msg);
+    let mut i = 0;
 
-        //push the value into the server address vec
-        server_address_vec.push(server_address_val);
+    loop {
+        let env_var = format!("Server{}Address", i);
+        match env::var(&env_var) {
+            Ok(server_address_val) => server_address_vec.push(server_address_val),
+            Err(_) => break,
+        }
+        i += 1;
+    }
+
+    if server_address_vec.is_empty() {
+        panic!("no Server0Address env var found : at least one storage node address is required");
     }
 
     server_address_vec

@@ -2,6 +2,7 @@
 //these functions are the base functions that are extended by the client sdk for calling the key value store 
 //these are the crud functions 
 // ponytail: signatures will match PutRequest/GetValRequest/DelValRequest when implemented
+
 use crate::shard_config_services::{GetFullConfigRequest, GetFullConfigResponse, shard_controller_client::ShardControllerClient};
 use tonic::transport::Channel; 
 use xxhash_rust::xxh3;
@@ -18,10 +19,7 @@ pub async fn get_shard_config(client: &mut ShardControllerClient<Channel>, reque
 
 //function to hash the key
 pub async fn get_key_hash<T : AsRef<[u8]>>(key: T ) -> u64{
-    //take the key  ||  //hash the key
     let key_hash = xxh3::xxh3_64(key.as_ref());
-     
-    //return the hash 
     key_hash 
 }
 
@@ -46,7 +44,6 @@ pub async fn get_shard_node_address(address : String, key: &str) -> Result<Strin
         return Err("shard config is empty : no storage nodes registered".into());
     }
 
-    //do binary search on the config : fyi : config is sorted by tick_value
     //partition_point finds the FIRST shard with tick_value >= hashed_key :
     //that shard owns the ring segment the key falls in
     let idx = shard_config
