@@ -6,9 +6,9 @@ pub mod storage_services {
 pub mod shard_config_services {
     tonic::include_proto!("shard_config");
 }
-mod states;
-mod errors;
-mod client;
+pub mod states;
+pub mod errors;
+pub mod client;
 
 
 //extend the functions from this lib

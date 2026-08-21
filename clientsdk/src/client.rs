@@ -1,5 +1,6 @@
 #[path = "utils.rs"]
-mod utils;
+pub mod utils;
+pub use utils::get_shard_node_address;
 use serde::de::DeserializeOwned;
 use crate::storage_services::{DelValRequest, GetValRequest, PutRequest, StorageResponse, grid_rock_client::GridRockClient};
 use tonic::transport::Channel;
@@ -10,7 +11,7 @@ use rand::RngExt;
 // so the same unique_id flows through Create -> Update -> Get -> Delete
 //take the request from the client 
 
-fn get_random_value<T: Copy>(values: &[T]) -> T {
+pub fn get_random_value<T: Copy>(values: &[T]) -> T {
     let mut rng = rand::rng();
     let index = rng.random_range(0..values.len());
     values[index]
